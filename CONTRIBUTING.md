@@ -346,7 +346,7 @@ uv publish
 Releases are cut from `main` and tagged `vX.Y.Z`. We use
 [`bump-my-version`](https://github.com/callowayproject/bump-my-version)
 (configured in `.bumpversion.toml`) to coordinate version bumps across
-`pyproject.toml` and `CHANGELOG.md`.
+`pyproject.toml`, `CHANGELOG.md`, and `uv.lock`.
 
 1. Ensure `CHANGELOG.md` has entries under `## [Unreleased]` describing the
    release. Move/rename as needed before bumping.

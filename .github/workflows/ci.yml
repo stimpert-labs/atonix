@@ -27,7 +27,7 @@ jobs:
         with:
           enable-cache: true
       - name: Install dev dependencies
-        run: uv sync --group dev --frozen
+        run: uv sync --group dev --locked
       - name: ruff check
         run: uv run ruff check .
       - name: ruff format --check
@@ -42,7 +42,7 @@ jobs:
         with:
           enable-cache: true
       - name: Install dev dependencies
-        run: uv sync --group dev --frozen
+        run: uv sync --group dev --locked
       - name: mypy
         run: uv run mypy atonix
 
@@ -61,7 +61,7 @@ jobs:
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
       - name: Install dev dependencies
-        run: uv sync --group dev --frozen --python ${{ matrix.python-version }}
+        run: uv sync --group dev --locked --python ${{ matrix.python-version }}
       - name: pytest
         run: |
           uv run --python ${{ matrix.python-version }} \
@@ -85,7 +85,7 @@ jobs:
         with:
           enable-cache: true
       - name: Install dev dependencies
-        run: uv sync --group dev --frozen
+        run: uv sync --group dev --locked
       - name: Build sdist + wheel
         run: uv build
       - name: Validate with twine
@@ -106,7 +106,7 @@ jobs:
         with:
           enable-cache: true
       - name: Install dev dependencies
-        run: uv sync --group dev --frozen
+        run: uv sync --group dev --locked
       - name: Export runtime requirements
         run: |
           uv export --no-emit-project --no-dev --no-hashes \
