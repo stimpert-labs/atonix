@@ -8,6 +8,7 @@ An **unofficial**, type-safe Python client for the Prometheus APM (formerly Aton
 > See [Disclaimer](#disclaimer).
 
 [![CI](https://github.com/stimpert-labs/atonix/actions/workflows/ci.yml/badge.svg)](https://github.com/stimpert-labs/atonix/actions/workflows/ci.yml)
+[![Docs](https://github.com/stimpert-labs/atonix/actions/workflows/docs.yml/badge.svg)](https://atonix.stimpert-labs.dev)
 [![CodeQL](https://github.com/stimpert-labs/atonix/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/stimpert-labs/atonix/security/code-scanning)
 [![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://www.python.org/downloads/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
@@ -305,7 +306,9 @@ asyncio.run(main())
 
 ## Documentation
 
-Comprehensive docstrings are provided for all public methods. You can generate HTML documentation using `pdoc`:
+API reference documentation for the latest release is published at **<https://atonix.stimpert-labs.dev>**.
+
+Comprehensive docstrings are provided for all public methods. You can also generate the HTML documentation locally using `pdoc`:
 
 ```bash
 uv run pdoc atonix -o ./docs --docformat google

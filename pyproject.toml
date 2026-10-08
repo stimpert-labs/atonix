@@ -36,6 +36,7 @@ dependencies = [
 
 [project.urls]
 "Homepage" = "https://github.com/stimpert-labs/atonix"
+"Documentation" = "https://atonix.stimpert-labs.dev"
 "Source" = "https://github.com/stimpert-labs/atonix"
 "Bug Tracker" = "https://github.com/stimpert-labs/atonix/issues"
 "Changelog" = "https://github.com/stimpert-labs/atonix/blob/main/CHANGELOG.md"
