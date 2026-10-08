@@ -190,7 +190,7 @@ for result in results:
 > Validate against a non-production environment first. You are solely responsible for any data you
 > write through this library.
 
-The library supports writing data using `TagData` objects. 
+The library supports writing data using `TagData` objects.
 It automatically handles chunking to respect API limits (approx. 30k points per call).
 
 ```python

@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - API reference documentation is now published to GitHub Pages at
   <https://atonix.stimpert-labs.dev> on each release (`.github/workflows/docs.yml`).
 
+### Fixed
+- Resolved the pre-existing mypy baseline in `atonix/base.py`, `atonix/models.py`, and
+  `atonix/processdata.py`; the CI `type-check` job is now blocking.
+- `get_data_for_range` no longer raises `TypeError` when a tag result omits `HttpCode`.
+- `write_tag_data` now raises a descriptive `ValueError` (instead of `TypeError`) when a
+  `TagData` entry is missing `timestamps` or `values`.
+
 ## [0.5.1] - 2026-10-08
 
 ### Fixed

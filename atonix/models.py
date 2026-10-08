@@ -102,11 +102,11 @@ class Models(BaseResource):
         # Check type to decide which model to use
         raw_type = response_data.get("Type", "ModelConfiguration")
         if raw_type == "ExternalModelConfiguration":
-            response = APIResponse[ExternalModelConfiguration](**response_data)  # type: ignore[misc]
-            return response.results[0]
+            external_response = APIResponse[ExternalModelConfiguration](**response_data)
+            return external_response.results[0]
         else:
-            response = APIResponse[ModelConfiguration](**response_data)  # type: ignore[misc]
-            return response.results[0]
+            standard_response = APIResponse[ModelConfiguration](**response_data)
+            return standard_response.results[0]
 
     def get_model_states_by_asset(
         self,
@@ -201,7 +201,7 @@ class Models(BaseResource):
             result_model = model.model_copy()
         else:
             model_id = model
-            result_model = Model(Id=model_id)
+            result_model = Model(model_id=model_id)
 
         if include_config:
             try:
@@ -311,11 +311,11 @@ class AsyncModels(AsyncBaseResource):
         response_data = await self._client.get(f"/v1/models/{model_id}/config")
         raw_type = response_data.get("Type", "ModelConfiguration")
         if raw_type == "ExternalModelConfiguration":
-            response = APIResponse[ExternalModelConfiguration](**response_data)  # type: ignore[misc]
-            return response.results[0]
+            external_response = APIResponse[ExternalModelConfiguration](**response_data)
+            return external_response.results[0]
         else:
-            response = APIResponse[ModelConfiguration](**response_data)  # type: ignore[misc]
-            return response.results[0]
+            standard_response = APIResponse[ModelConfiguration](**response_data)
+            return standard_response.results[0]
 
     def get_model_states_by_asset(
         self,
@@ -410,7 +410,7 @@ class AsyncModels(AsyncBaseResource):
             result_model = model.model_copy()
         else:
             model_id = model
-            result_model = Model(Id=model_id)
+            result_model = Model(model_id=model_id)
 
         if include_config:
             try:

@@ -76,6 +76,8 @@ def _iter_tag_chunks(data: list[TagData]) -> Iterable[tuple[dict[str, Any], int]
     payload. Callers are responsible for packing entries into batches.
     """
     for series in data:
+        if series.timestamps is None or series.values is None:
+            raise ValueError(f"TagData for tag {series.tag_id} must have both timestamps and values to be written")
         for i in range(0, len(series.timestamps), _WRITE_CHUNK_LIMIT):
             chunk_timestamps = series.timestamps[i : i + _WRITE_CHUNK_LIMIT]
             chunk_values = series.values[i : i + _WRITE_CHUNK_LIMIT]
@@ -235,7 +237,7 @@ class ProcessData(BaseResource):
                 logger.debug("tag_res: %s", tag_res)
             else:
                 logger.debug("tag_res summary: %s", _summarize_tag_result(tag_res))
-            if not 200 <= tag_res.http_code < 300:
+            if tag_res.http_code is not None and not 200 <= tag_res.http_code < 300:
                 logger.error("Failed to retrieve data for tag %s: Code %d", tag_res.tag_id, tag_res.http_code)
 
         return response.results
@@ -422,7 +424,7 @@ class AsyncProcessData(AsyncBaseResource):
                 logger.debug("tag_res: %s", tag_res)
             else:
                 logger.debug("tag_res summary: %s", _summarize_tag_result(tag_res))
-            if not 200 <= tag_res.http_code < 300:
+            if tag_res.http_code is not None and not 200 <= tag_res.http_code < 300:
                 logger.error("Failed to retrieve data for tag %s: Code %d", tag_res.tag_id, tag_res.http_code)
 
         return response.results

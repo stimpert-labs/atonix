@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Iterator
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from atonix.object_models.common import APIResponse
 
@@ -20,6 +20,14 @@ T = TypeVar("T")
 def _to_utc_ms_str(dt: datetime) -> str:
     """Format a datetime as UTC ISO 8601 with millisecond precision (e.g. '2024-01-15T12:00:00.000Z')."""
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _parse_api_response(result_type: type[T], data: dict[str, Any]) -> APIResponse[T]:
+    """Parse raw response data into an ``APIResponse`` parametrized with ``result_type`` at runtime."""
+    # Static checkers reject subscripting a generic with a runtime variable, but
+    # Pydantic needs the concrete parametrization to validate the result items.
+    response_model: type[APIResponse[T]] = cast(Any, APIResponse)[result_type]
+    return response_model(**data)
 
 
 class BaseResource:
@@ -65,7 +73,7 @@ class BaseResource:
             current_params["take"] = take
 
             response_data = self._client.get(endpoint, params=current_params)
-            response = APIResponse[result_type](**response_data)
+            response = _parse_api_response(result_type, response_data)
 
             yield from response.results
 
@@ -90,7 +98,7 @@ class BaseResource:
             ValueError: If no results were found in the response.
         """
         response_data = self._client.get(endpoint, params=params)
-        response = APIResponse[result_type](**response_data)
+        response = _parse_api_response(result_type, response_data)
         if not response.results:
             raise ValueError(f"No results found for {endpoint}")
         return response.results[0]
@@ -136,7 +144,7 @@ class AsyncBaseResource:
             current_params["take"] = take
 
             response_data = await self._client.get(endpoint, params=current_params)
-            response = APIResponse[result_type](**response_data)
+            response = _parse_api_response(result_type, response_data)
 
             for item in response.results:
                 yield item
@@ -162,7 +170,7 @@ class AsyncBaseResource:
             ValueError: If no results were found in the response.
         """
         response_data = await self._client.get(endpoint, params=params)
-        response = APIResponse[result_type](**response_data)
+        response = _parse_api_response(result_type, response_data)
         if not response.results:
             raise ValueError(f"No results found for {endpoint}")
         return response.results[0]

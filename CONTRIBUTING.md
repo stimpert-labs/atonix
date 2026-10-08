@@ -140,10 +140,10 @@ class TestMyFeature:
         respx.get(f"{BASE_URL}/v1/endpoint").mock(
             return_value=Response(200, json=make_api_response([...]))
         )
-        
+
         # Test your code
         result = mock_client.my_feature.my_function()
-        
+
         # Assertions
         assert len(result) == expected_count
 ```
@@ -179,12 +179,12 @@ class TestMyFeature:
 def get_items(self, asset_id: str, skip: int = 0, take: int = 500) -> list[Item]:
     """
     Retrieve items for an asset.
-    
+
     Args:
         asset_id: The unique identifier (GUID) of the asset.
         skip: Number of items to skip for pagination.
         take: Number of items to retrieve per page.
-        
+
     Returns:
         A list of Item objects.
     """
@@ -233,17 +233,17 @@ Use Google-style docstrings:
 def my_function(param1: str, param2: int = 0) -> bool:
     """
     Brief description of what the function does.
-    
+
     Longer explanation if needed, describing behavior,
     edge cases, or important implementation details.
-    
+
     Args:
         param1: Description of param1.
         param2: Description of param2 (default: 0).
-        
+
     Returns:
         Description of return value.
-        
+
     Raises:
         ValueError: When param1 is empty.
         APIError: When the API request fails.
