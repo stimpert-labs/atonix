@@ -6,6 +6,7 @@ import respx
 from httpx import Response
 
 from atonix.object_models.models import Model
+from tests.conftest import BASE_URL
 
 
 def test_model_instantiation():
@@ -54,7 +55,7 @@ def test_get_model_include_config(mock_client):
     """Test get_model with include_config=True."""
     model_id = "model-conf"
 
-    respx.get(f"https://api-us.pgapm.io/v1/models/{model_id}/config").mock(
+    respx.get(f"{BASE_URL}/v1/models/{model_id}/config").mock(
         return_value=Response(
             200,
             json={
@@ -99,7 +100,7 @@ def test_get_model_include_state_and_actions(mock_client):
     """Test get_model with include_state=True and include_actions=True."""
     model_id = "model-state-actions"
 
-    respx.get(f"https://api-us.pgapm.io/v1/models/{model_id}/state").mock(
+    respx.get(f"{BASE_URL}/v1/models/{model_id}/state").mock(
         return_value=Response(
             200,
             json={
@@ -110,7 +111,7 @@ def test_get_model_include_state_and_actions(mock_client):
         )
     )
 
-    respx.get(f"https://api-us.pgapm.io/v1/models/{model_id}/actions", params={"skip": 0, "take": 500}).mock(
+    respx.get(f"{BASE_URL}/v1/models/{model_id}/actions", params={"skip": 0, "take": 500}).mock(
         return_value=Response(
             200,
             json={
@@ -153,7 +154,7 @@ def test_get_model_actions_with_filters(mock_client):
 
     params = {"skip": 0, "take": 500, "changedAfter": fmt(start_date), "changedBefore": fmt(end_date)}
 
-    respx.get(f"https://api-us.pgapm.io/v1/models/{model_id}/actions", params=params).mock(
+    respx.get(f"{BASE_URL}/v1/models/{model_id}/actions", params=params).mock(
         return_value=Response(
             200,
             json={
