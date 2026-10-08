@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Version bumps (`bump-my-version`) now also update the project version recorded in
+  `uv.lock`, and CI now runs `uv sync --locked` so a stale lockfile fails the build
+  instead of the release workflow.
+
 ## [0.5.2] - 2026-10-08
 
 ### Added

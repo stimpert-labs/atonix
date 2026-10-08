@@ -6,7 +6,7 @@
 #   uv run bump-my-version bump minor           # 0.5.0 -> 0.6.0
 #   uv run bump-my-version bump major --dry-run # preview
 #
-# This will: edit pyproject.toml + CHANGELOG.md, create a commit, and tag v{new_version}.
+# This will: edit pyproject.toml + CHANGELOG.md + uv.lock, create a commit, and tag v{new_version}.
 
 [tool.bumpversion]
 current_version = "0.5.2"
@@ -38,3 +38,14 @@ filename = "CHANGELOG.md"
 search = "[Unreleased]: https://github.com/stimpert-labs/atonix/compare/v{current_version}...HEAD"
 replace = """[Unreleased]: https://github.com/stimpert-labs/atonix/compare/v{new_version}...HEAD
 [{new_version}]: https://github.com/stimpert-labs/atonix/compare/v{current_version}...v{new_version}"""
+
+[[tool.bumpversion.files]]
+filename = "uv.lock"
+search = """
+name = "atonix"
+version = "{current_version}"
+"""
+replace = """
+name = "atonix"
+version = "{new_version}"
+"""
