@@ -9,7 +9,7 @@
 # This will: edit pyproject.toml + CHANGELOG.md, create a commit, and tag v{new_version}.
 
 [tool.bumpversion]
-current_version = "0.5.1"
+current_version = "0.5.2"
 parse = '(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)'
 serialize = ["{major}.{minor}.{patch}"]
 search = "{current_version}"
