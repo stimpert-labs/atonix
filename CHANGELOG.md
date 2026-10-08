@@ -7,12 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-10-08
+
 ### Fixed
 - Version bumps (`bump-my-version`) now also update the project version recorded in
   `uv.lock`, and CI now runs `uv sync --locked` so a stale lockfile fails the build
   instead of the release workflow.
+- updated dependencies for release and ci workflows
 
 ## [0.5.2] - 2026-10-08
+
+v0.5.2 was tagged but never released due to issues with ci pipelines
 
 ### Added
 - API reference documentation is now published to GitHub Pages at
@@ -79,7 +84,8 @@ First open-source release.
 ### Security
 - Bumped `cryptography` to a patched release.
 
-[Unreleased]: https://github.com/stimpert-labs/atonix/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/stimpert-labs/atonix/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/stimpert-labs/atonix/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/stimpert-labs/atonix/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/stimpert-labs/atonix/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/stimpert-labs/atonix/releases/tag/v0.5.0
