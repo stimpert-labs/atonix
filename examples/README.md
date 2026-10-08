@@ -12,7 +12,7 @@ Before running these examples, ensure you have:
    ```
 
 2. **Set up authentication**:
-   
+
    Set environment variables:
    ```bash
    export ATONIX_API_KEY="your-api-key-here"

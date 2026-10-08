@@ -132,6 +132,36 @@ class TestGetDataForRange:
         assert isinstance(result[0], TagData)
         assert result[0].tag_id == tag_ids[0]
 
+    @respx.mock
+    def test_get_data_for_range_missing_http_code(self, mock_client):
+        """get_data_for_range should tolerate tag results that omit HttpCode."""
+        server_id = "33333333-3333-3333-3333-333333333333"
+        tag_ids = ["44444444-4444-4444-4444-444444444444"]
+
+        respx.get(f"{BASE_URL}/v1/processdata/servers/{server_id}/archives").mock(
+            return_value=Response(
+                200,
+                json=make_api_response([{"Name": "1min", "Interval": 60}], count=1, type_name="ListArchiveResult"),
+            )
+        )
+        data_response = {
+            "Success": True,
+            "StatusCode": 200,
+            "Results": [{"TagId": tag_ids[0], "Data": {"Timestamps": [], "Values": [], "Statuses": []}}],
+        }
+        respx.post(f"{BASE_URL}/v1/processdata/query").mock(return_value=Response(200, json=data_response))
+
+        result = ProcessData(mock_client).get_data_for_range(
+            server_id=server_id,
+            start_time=datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+            end_time=datetime(2024, 1, 15, 12, 30, 0, tzinfo=timezone.utc),
+            tag_ids=tag_ids,
+            archive="1min",
+        )
+
+        assert len(result) == 1
+        assert result[0].http_code is None
+
 
 class TestWriteTagData:
     """Tests for ProcessData.write_tag_data()."""
@@ -225,6 +255,18 @@ class TestWriteTagData:
         )
         pd_api = ProcessData(mock_client)
         pd_api.write_tag_data("server", "1min", [])
+        assert len(respx.calls) == 0
+
+    @respx.mock
+    def test_write_tag_data_missing_values_raises(self, mock_client):
+        """write_tag_data should reject TagData without timestamps/values before sending anything."""
+        respx.post(f"{BASE_URL}/v1/processdata/write").mock(
+            return_value=Response(200, json=make_api_response([], count=0))
+        )
+        tag_data = [TagData(tag_id="tag1", timestamps=[datetime.now(timezone.utc)], values=None)]
+
+        with pytest.raises(ValueError, match="tag1"):
+            ProcessData(mock_client).write_tag_data("server", "1min", tag_data)
         assert len(respx.calls) == 0
 
         server_id = "33333333-3333-3333-3333-333333333333"

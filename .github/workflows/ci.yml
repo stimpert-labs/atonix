@@ -44,10 +44,6 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --group dev --frozen
       - name: mypy
-        # Non-blocking initially — the codebase has a pre-existing baseline of
-        # ~15 mypy errors in atonix/base.py, models.py, and processdata.py.
-        # Remove `continue-on-error` once that baseline is resolved.
-        continue-on-error: true
         run: uv run mypy atonix
 
   test:
