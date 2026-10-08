@@ -96,6 +96,7 @@ export ATONIX_PRIVATE_KEY_PASSWORD=your-password
 
 ```python
 from atonix import AtonixClient
+
 client = AtonixClient(api_key="YOUR_API_KEY_HERE")
 ```
 
@@ -110,6 +111,7 @@ With all of these set, construction is simply:
 
 ```python
 from atonix import AtonixClient
+
 client = AtonixClient()
 ```
 
@@ -172,11 +174,7 @@ end_time = datetime.now(timezone.utc)
 start_time = end_time - timedelta(hours=1)
 
 results = client.process_data.get_data_for_range(
-    server_id=server_id,
-    start_time=start_time,
-    end_time=end_time,
-    tag_ids=tag_ids,
-    archive="1min"
+    server_id=server_id, start_time=start_time, end_time=end_time, tag_ids=tag_ids, archive="1min"
 )
 
 for result in results:
@@ -196,20 +194,9 @@ It automatically handles chunking to respect API limits (approx. 30k points per 
 ```python
 from atonix.object_models.processdata import TagData
 
-new_data = [
-    TagData(
-        tag_id="tag-guid-1",
-        timestamps=[datetime.now(timezone.utc)],
-        values=[10.5],
-        statuses=[0]
-    )
-]
+new_data = [TagData(tag_id="tag-guid-1", timestamps=[datetime.now(timezone.utc)], values=[10.5], statuses=[0])]
 
-client.process_data.write_tag_data(
-    server_id=server_id,
-    archive="1min",
-    data=new_data
-)
+client.process_data.write_tag_data(server_id=server_id, archive="1min", data=new_data)
 ```
 
 ### Issues API
@@ -220,6 +207,7 @@ issues = client.issues.get_issues(asset_id="asset-guid")
 
 # Filter by status, descendants, and date range
 from datetime import datetime, timezone
+
 recent_issues = client.issues.get_issues(
     asset_id="asset-guid",
     status="open",
@@ -235,12 +223,13 @@ print(f"Issue {issue.title} is currently {issue.issue_status}")
 
 # Create a new issue
 from atonix.object_models.issues import IssueCreate
+
 new_issue_data = IssueCreate(
     asset_id="asset-guid",
     title="High Vibration on Pump 1",
     category_desc="Maintenance",
     issue_class_type_desc="Mechanical",
-    priority="High"
+    priority="High",
 )
 new_issue = client.issues.create_issue(new_issue_data)
 ```
@@ -252,12 +241,7 @@ new_issue = client.issues.create_issue(new_issue_data)
 models = client.models.get_models(asset_id="asset-guid")
 
 # Get a specific Model with full details (Config, State, Actions)
-model = client.models.get_model(
-    "model-guid",
-    include_config=True,
-    include_state=True,
-    include_actions=True
-)
+model = client.models.get_model("model-guid", include_config=True, include_state=True, include_actions=True)
 
 print(f"Model: {model.name}")
 
@@ -282,6 +266,7 @@ All API resources are also available via `AsyncAtonixClient`, which uses `httpx.
 import asyncio
 from atonix import AsyncAtonixClient
 
+
 async def main():
     async with AsyncAtonixClient() as client:
         # Async iteration over paginated results
@@ -300,6 +285,7 @@ async def main():
             tag_ids=["tag-guid"],
             archive="1min",
         )
+
 
 asyncio.run(main())
 ```

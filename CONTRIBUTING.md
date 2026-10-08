@@ -136,13 +136,12 @@ import respx
 from httpx import Response
 from tests.conftest import BASE_URL, make_api_response
 
+
 class TestMyFeature:
     @respx.mock
     def test_my_function(self, mock_client):
         # Mock the API response
-        respx.get(f"{BASE_URL}/v1/endpoint").mock(
-            return_value=Response(200, json=make_api_response([...]))
-        )
+        respx.get(f"{BASE_URL}/v1/endpoint").mock(return_value=Response(200, json=make_api_response([...])))
 
         # Test your code
         result = mock_client.my_feature.my_function()
