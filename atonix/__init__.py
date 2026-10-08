@@ -37,6 +37,7 @@ from atonix.exceptions import (
     AuthenticationError,
     NotFoundError,
     PermissionDeniedError,
+    QuerySizeError,
     RateLimitError,
     ServerError,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "NotFoundError",
     "PermissionDeniedError",
     "ProcessData",
+    "QuerySizeError",
     "RateLimitError",
     "ServerError",
     "__author__",

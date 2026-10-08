@@ -2,11 +2,13 @@
 # Copyright (c) 2023-2026 Kolton Stimpert
 """Shared pytest fixtures for Atonix unit tests."""
 
+import json
 from typing import Any
 
 import pytest
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import rsa
+from httpx import Request, Response
 
 from atonix.client import AtonixClient
 
@@ -356,3 +358,22 @@ def make_discussion_entry(text: str = "Discussion entry text") -> dict:
 def make_discussion_entries(count: int, start_index: int = 0) -> list[dict]:
     """Generate a list of sample discussion entries."""
     return [make_discussion_entry(text=f"Discussion entry {i}") for i in range(start_index, start_index + count)]
+
+
+def query_echo_side_effect(request: Request) -> Response:
+    """respx side effect for /v1/processdata/query that returns the window's Start and End
+    as the two data points for every requested tag (mimicking inclusive endpoints)."""
+    payload = json.loads(request.content)
+    results = [
+        {
+            "TagId": tag_id,
+            "HttpCode": 200,
+            "Data": {
+                "Timestamps": [payload["Start"], payload["End"]],
+                "Values": [1.0, 2.0],
+                "Statuses": [0, 0],
+            },
+        }
+        for tag_id in payload["TagIds"]
+    ]
+    return Response(200, json={"Success": True, "StatusCode": 200, "Results": results})

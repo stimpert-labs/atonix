@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 from collections.abc import AsyncIterator, Iterable, Iterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from atonix.base import AsyncBaseResource, BaseResource
+from atonix.exceptions import QuerySizeError
 from atonix.object_models.common import APIResponse
 from atonix.object_models.processdata import Archive, Server, Tag, TagData
 
@@ -66,6 +68,136 @@ def _validate_query_size(tag_count: int, start_time: datetime, end_time: datetim
         return True
     total_points = (end_time - start_time).total_seconds() / interval * tag_count
     return total_points <= _READ_CHUNK_LIMIT
+
+
+def _timestamps_per_tag(start_time: datetime, end_time: datetime, interval: int) -> float:
+    """Estimate the number of timestamps per tag for a range at the given archive interval."""
+    return (end_time - start_time).total_seconds() / interval
+
+
+def _plan_read_chunks(
+    tag_ids: list[str], start_time: datetime, end_time: datetime, interval: int
+) -> list[tuple[list[str], datetime, datetime]]:
+    """Split a read query into (tag_ids, start, end) sub-queries that each fit within _READ_CHUNK_LIMIT.
+
+    The range is first split into time windows short enough that a single tag fits in
+    one query, then tags are grouped so each (window, tag group) stays under the limit.
+    Windows are planned assuming both endpoints are inclusive, so a window of ``n``
+    intervals counts as ``n + 1`` points per tag.
+    """
+    total_intervals = math.ceil(_timestamps_per_tag(start_time, end_time, interval))
+    max_intervals_per_window = _READ_CHUNK_LIMIT - 1
+    window_count = max(1, math.ceil(total_intervals / max_intervals_per_window))
+    intervals_per_window = math.ceil(total_intervals / window_count)
+    tags_per_chunk = max(1, _READ_CHUNK_LIMIT // (intervals_per_window + 1))
+
+    window_span = timedelta(seconds=intervals_per_window * interval)
+    windows: list[tuple[datetime, datetime]] = []
+    window_start = start_time
+    while True:
+        window_end = min(window_start + window_span, end_time)
+        windows.append((window_start, window_end))
+        if window_end >= end_time:
+            break
+        window_start = window_end
+
+    return [
+        (tag_ids[i : i + tags_per_chunk], w_start, w_end)
+        for w_start, w_end in windows
+        for i in range(0, len(tag_ids), tags_per_chunk)
+    ]
+
+
+def _is_error_code(http_code: int | None) -> bool:
+    return http_code is not None and not 200 <= http_code < 300
+
+
+def _merge_tag_results(tag_ids: list[str], chunk_results: list[list[TagData]]) -> list[TagData]:
+    """Reassemble per-chunk TagData results into one TagData per tag.
+
+    ``chunk_results`` must be ordered by time window. Points at or before the last
+    timestamp already merged for a tag are dropped, which removes the duplicate point
+    shared by adjacent inclusive windows. The first non-2xx ``http_code``/``error`` seen
+    for a tag is kept so failures in any chunk remain visible.
+    """
+    merged: dict[str, TagData] = {}
+    for results in chunk_results:
+        for res in results:
+            existing = merged.get(res.tag_id)
+            if existing is None:
+                merged[res.tag_id] = res.model_copy(deep=True)
+                continue
+            if _is_error_code(res.http_code) and not _is_error_code(existing.http_code):
+                existing.http_code = res.http_code
+                existing.error = res.error
+            if not res.timestamps:
+                continue
+            if not existing.timestamps:
+                existing.timestamps, existing.values, existing.statuses = [], [], []
+            last = existing.timestamps[-1] if existing.timestamps else None
+            for idx, ts in enumerate(res.timestamps):
+                if last is not None and ts <= last:
+                    continue
+                existing.timestamps.append(ts)
+                if existing.values is not None and res.values is not None:
+                    existing.values.append(res.values[idx])
+                if existing.statuses is not None and res.statuses is not None:
+                    existing.statuses.append(res.statuses[idx])
+
+    ordered = [merged.pop(tag_id) for tag_id in dict.fromkeys(tag_ids) if tag_id in merged]
+    # Keep any tags the API returned that weren't in the request, rather than dropping them silently.
+    ordered.extend(merged.values())
+    return ordered
+
+
+def _check_query_size(tag_ids: list[str], start_time: datetime, end_time: datetime, interval: int, chunk: bool) -> bool:
+    """Return True when the query must be chunked; raise QuerySizeError if it's too large and chunking is off."""
+    if _validate_query_size(len(tag_ids), start_time, end_time, interval):
+        return False
+    timestamps_per_tag = _timestamps_per_tag(start_time, end_time, interval)
+    if not chunk:
+        logger.error(
+            "Query limit: %d tag-timestamp pairs. Tag count: %d, Timestamps: %.0f",
+            _READ_CHUNK_LIMIT,
+            len(tag_ids),
+            timestamps_per_tag,
+        )
+        raise QuerySizeError(_READ_CHUNK_LIMIT, len(tag_ids), timestamps_per_tag)
+    return True
+
+
+def _build_query_payload(
+    server_id: str, start_time: datetime, end_time: datetime, tag_ids: list[str], archive: str
+) -> dict[str, Any]:
+    return {
+        "ServerId": server_id,
+        "Start": start_time.isoformat(),
+        "End": end_time.isoformat(),
+        "Archive": archive,
+        "TagIds": tag_ids,
+    }
+
+
+def _parse_query_response(response_data: Any) -> list[TagData]:
+    """Log, validate, and parse a /processdata/query response into TagData results."""
+    if _payload_logging_enabled():
+        logger.debug("Response data: %s", response_data)
+    else:
+        logger.debug("Response data summary: %s", _summarize_query_response(response_data))
+    if not response_data.get("Success"):
+        logger.error("Failed to retrieve data: %s", response_data.get("Results"))
+        raise ValueError(response_data.get("Message") or "API returned failure with no message")
+    response = APIResponse[TagData](**response_data)
+
+    for tag_res in response.results:
+        if _payload_logging_enabled():
+            logger.debug("tag_res: %s", tag_res)
+        else:
+            logger.debug("tag_res summary: %s", _summarize_tag_result(tag_res))
+        if _is_error_code(tag_res.http_code):
+            logger.error("Failed to retrieve data for tag %s: Code %d", tag_res.tag_id, tag_res.http_code)
+
+    return response.results
 
 
 def _iter_tag_chunks(data: list[TagData]) -> Iterable[tuple[dict[str, Any], int]]:
@@ -175,11 +307,15 @@ class ProcessData(BaseResource):
         end_time: datetime,
         tag_ids: list[str],
         archive: str,
+        chunk: bool = True,
     ) -> list[TagData]:
         """
         Retrieve time-series data for a set of tags over a date range.
 
-        automatically calculates requirements for interval/sampling based on the archive.
+        Automatically calculates requirements for interval/sampling based on the archive.
+        Queries larger than ``_READ_CHUNK_LIMIT`` (250,000 tag x timestamp points) are split
+        into sub-queries by tag group and, when a single tag exceeds the limit, by time window.
+        The per-tag series are reassembled before returning.
 
         Args:
             server_id: The unique identifier (GUID) of the historian server.
@@ -187,9 +323,14 @@ class ProcessData(BaseResource):
             end_time: End of the query window (UTC).
             tag_ids: List of tag GUIDs to retrieve data for.
             archive: Archive name to query (e.g., '1min', 'raw').
+            chunk: When True (default), split oversized queries automatically. When False,
+                raise ``QuerySizeError`` instead.
 
         Returns:
             A list of TagData objects, one per tag requested.
+
+        Raises:
+            QuerySizeError: If the query exceeds the point limit and ``chunk`` is False.
         """
 
         if not _validate_time_range(start_time, end_time):
@@ -205,42 +346,17 @@ class ProcessData(BaseResource):
         else:
             interval = archive_info.interval
 
-        if not _validate_query_size(len(tag_ids), start_time, end_time, interval):
-            logger.error(
-                "Query limit: %d tag-timestamp pairs. Tag count: %d, Timestamps: %.0f",
-                _READ_CHUNK_LIMIT,
-                len(tag_ids),
-                (end_time - start_time).total_seconds() / interval,
-            )
-            raise ValueError(f"Query size exceeds limit of {_READ_CHUNK_LIMIT} points.")
+        if not _check_query_size(tag_ids, start_time, end_time, interval, chunk):
+            payload = _build_query_payload(server_id, start_time, end_time, tag_ids, archive)
+            return _parse_query_response(self._client.post("/v1/processdata/query", json=payload))
 
-        payload = {
-            "ServerId": server_id,
-            "Start": start_time.isoformat(),
-            "End": end_time.isoformat(),
-            "Archive": archive,
-            "TagIds": tag_ids,
-        }
-
-        response_data = self._client.post("/v1/processdata/query", json=payload)
-        if _payload_logging_enabled():
-            logger.debug("Response data: %s", response_data)
-        else:
-            logger.debug("Response data summary: %s", _summarize_query_response(response_data))
-        if not response_data.get("Success"):
-            logger.error("Failed to retrieve data: %s", response_data.get("Results"))
-            raise ValueError(response_data.get("Message") or "API returned failure with no message")
-        response = APIResponse[TagData](**response_data)
-
-        for tag_res in response.results:
-            if _payload_logging_enabled():
-                logger.debug("tag_res: %s", tag_res)
-            else:
-                logger.debug("tag_res summary: %s", _summarize_tag_result(tag_res))
-            if tag_res.http_code is not None and not 200 <= tag_res.http_code < 300:
-                logger.error("Failed to retrieve data for tag %s: Code %d", tag_res.tag_id, tag_res.http_code)
-
-        return response.results
+        chunks = _plan_read_chunks(tag_ids, start_time, end_time, interval)
+        logger.info("Query exceeds %d points; splitting into %d sub-queries", _READ_CHUNK_LIMIT, len(chunks))
+        chunk_results = []
+        for chunk_tags, chunk_start, chunk_end in chunks:
+            payload = _build_query_payload(server_id, chunk_start, chunk_end, chunk_tags, archive)
+            chunk_results.append(_parse_query_response(self._client.post("/v1/processdata/query", json=payload)))
+        return _merge_tag_results(tag_ids, chunk_results)
 
     def write_tag_data(self, server_id: str, archive: str, data: list[TagData]) -> None:
         """
@@ -362,9 +478,14 @@ class AsyncProcessData(AsyncBaseResource):
         end_time: datetime,
         tag_ids: list[str],
         archive: str,
+        chunk: bool = True,
     ) -> list[TagData]:
         """
         Retrieve time-series data for a set of tags over a date range.
+
+        Queries larger than ``_READ_CHUNK_LIMIT`` (250,000 tag x timestamp points) are split
+        into sub-queries by tag group and, when a single tag exceeds the limit, by time window.
+        Sub-queries run sequentially and the per-tag series are reassembled before returning.
 
         Args:
             server_id: The unique identifier (GUID) of the historian server.
@@ -372,9 +493,14 @@ class AsyncProcessData(AsyncBaseResource):
             end_time: End of the query window (UTC).
             tag_ids: List of tag GUIDs to retrieve data for.
             archive: Archive name to query (e.g., '1min', 'raw').
+            chunk: When True (default), split oversized queries automatically. When False,
+                raise ``QuerySizeError`` instead.
 
         Returns:
             A list of TagData objects, one per tag requested.
+
+        Raises:
+            QuerySizeError: If the query exceeds the point limit and ``chunk`` is False.
         """
         if not _validate_time_range(start_time, end_time):
             raise ValueError("Start time must be before end time")
@@ -392,42 +518,17 @@ class AsyncProcessData(AsyncBaseResource):
 
         interval = archive_info.interval
 
-        if not _validate_query_size(len(tag_ids), start_time, end_time, interval):
-            logger.error(
-                "Query limit: %d tag-timestamp pairs. Tag count: %d, Timestamps: %.0f",
-                _READ_CHUNK_LIMIT,
-                len(tag_ids),
-                (end_time - start_time).total_seconds() / interval,
-            )
-            raise ValueError(f"Query size exceeds limit of {_READ_CHUNK_LIMIT} points.")
+        if not _check_query_size(tag_ids, start_time, end_time, interval, chunk):
+            payload = _build_query_payload(server_id, start_time, end_time, tag_ids, archive)
+            return _parse_query_response(await self._client.post("/v1/processdata/query", json=payload))
 
-        payload = {
-            "ServerId": server_id,
-            "Start": start_time.isoformat(),
-            "End": end_time.isoformat(),
-            "Archive": archive,
-            "TagIds": tag_ids,
-        }
-
-        response_data = await self._client.post("/v1/processdata/query", json=payload)
-        if _payload_logging_enabled():
-            logger.debug("Response data: %s", response_data)
-        else:
-            logger.debug("Response data summary: %s", _summarize_query_response(response_data))
-        if not response_data.get("Success"):
-            logger.error("Failed to retrieve data: %s", response_data.get("Results"))
-            raise ValueError(response_data.get("Message") or "API returned failure with no message")
-        response = APIResponse[TagData](**response_data)
-
-        for tag_res in response.results:
-            if _payload_logging_enabled():
-                logger.debug("tag_res: %s", tag_res)
-            else:
-                logger.debug("tag_res summary: %s", _summarize_tag_result(tag_res))
-            if tag_res.http_code is not None and not 200 <= tag_res.http_code < 300:
-                logger.error("Failed to retrieve data for tag %s: Code %d", tag_res.tag_id, tag_res.http_code)
-
-        return response.results
+        chunks = _plan_read_chunks(tag_ids, start_time, end_time, interval)
+        logger.info("Query exceeds %d points; splitting into %d sub-queries", _READ_CHUNK_LIMIT, len(chunks))
+        chunk_results = []
+        for chunk_tags, chunk_start, chunk_end in chunks:
+            payload = _build_query_payload(server_id, chunk_start, chunk_end, chunk_tags, archive)
+            chunk_results.append(_parse_query_response(await self._client.post("/v1/processdata/query", json=payload)))
+        return _merge_tag_results(tag_ids, chunk_results)
 
     async def write_tag_data(self, server_id: str, archive: str, data: list[TagData]) -> None:
         """

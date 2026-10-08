@@ -181,6 +181,20 @@ for result in results:
     print(f"Tag {result.tag_id}: {len(result.values)} points found.")
 ```
 
+Large reads are chunked automatically. A query over 250,000 tag × timestamp points is split
+into sub-queries, by tag group and, when one tag alone is over the limit, by time window. The
+per-tag series are reassembled before they're returned. Pass `chunk=False` to raise
+`QuerySizeError` instead:
+
+```python
+from atonix import QuerySizeError
+
+try:
+    client.process_data.get_data_for_range(server_id, start_time, end_time, tag_ids, "1min", chunk=False)
+except QuerySizeError as e:
+    print(e.limit, e.tag_count, e.timestamps_per_tag, e.total_points)
+```
+
 #### Writing Data
 
 > [!WARNING]
@@ -308,6 +322,9 @@ Standardized exceptions are raised based on HTTP status codes:
 - `NotFoundError` (404)
 - `RateLimitError` (429)
 - `ServerError` (5xx)
+
+Client-side checks raise `QuerySizeError` when a process data read is over the point limit
+and `chunk=False` is set.
 
 If a 401 looks like it was caused by clock skew (skew-related keywords in the
 server's error message, or a mismatch between the response `Date` header and
