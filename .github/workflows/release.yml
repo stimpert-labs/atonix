@@ -13,7 +13,7 @@ jobs:
         with:
           enable-cache: true
       - name: Install dev dependencies
-        run: uv sync --group dev --frozen
+        run: uv sync --group dev --locked
       - name: Build sdist + wheel
         run: uv build
       - name: Validate with twine
