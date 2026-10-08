@@ -30,7 +30,7 @@ def mock_client(mock_private_key: rsa.RSAPrivateKey) -> AtonixClient:
 
 # --- Base URL ---
 
-BASE_URL = "https://api.oi.atonix.com"
+BASE_URL = "https://api-us.pgapm.io"
 
 
 # --- Sample Response Factories ---
