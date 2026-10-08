@@ -332,40 +332,43 @@ uv run python scripts/verify_install.py
 The script exits non-zero on failure, so it's also suitable for use as a CI
 smoke-test step.
 
-To publish to PyPI (requires credentials):
-
-```bash
-uv publish
-```
-
 ---
 
 ## Release Process
 
-Releases are cut from `main` and tagged `vX.Y.Z`. We use
+Releases are tagged `vX.Y.Z` on `main`. `main` only changes through squash-merged
+PRs and every commit needs a DCO sign-off, so the version bump goes through a
+release PR and the tag is created after it merges. We use
 [`bump-my-version`](https://github.com/callowayproject/bump-my-version)
-(configured in `.bumpversion.toml`) to coordinate version bumps across
-`pyproject.toml`, `CHANGELOG.md`, and `uv.lock`.
+(configured in `.bumpversion.toml`) to update `pyproject.toml`, `CHANGELOG.md`,
+and `uv.lock`; it does not commit or tag on its own.
 
 1. Ensure `CHANGELOG.md` has entries under `## [Unreleased]` describing the
-   release. Move/rename as needed before bumping.
-2. Make sure your working tree is clean and on `main`:
+   release.
+2. Branch from an up-to-date `main`:
    ```bash
    git checkout main && git pull
+   git checkout -b release/vX.Y.Z
    ```
-3. Bump the version (creates a commit and tag):
+3. Bump the version and commit with a sign-off:
    ```bash
    uv run bump-my-version bump patch    # or: minor / major
+   git commit -s -am "Release vX.Y.Z"
    ```
-4. Push the commit and tag together:
+4. Push, open a PR, and squash-merge it once CI is green.
+5. Tag the merged commit on `main`:
    ```bash
-   git push --follow-tags
+   git checkout main && git pull
+   git tag -a vX.Y.Z -m "Release vX.Y.Z"
+   git push origin vX.Y.Z
    ```
-5. The release workflow (`.github/workflows/release.yml`) is currently
-   **commented out**. Once PyPI Trusted Publishers are configured for this
-   repo, uncomment it (see the header comments in that file) and a tag push
-   will publish the build to PyPI automatically. Until then, builds remain
-   local-only — `uv build` followed by manual `uv publish` if needed.
+6. The tag push triggers two workflows:
+   - `release.yml` builds, runs `twine check`, and publishes to PyPI via a
+     Trusted Publisher (OIDC) through the `pypi` environment. Approve the
+     deployment if the environment is gated.
+   - `docs.yml` deploys the pdoc site to GitHub Pages.
+
+Publishing is done by CI only; do not run `uv publish` manually.
 
 ---
 
