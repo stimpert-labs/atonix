@@ -35,8 +35,8 @@ from atonix.processdata import AsyncProcessData, ProcessData
 class AtonixEnvironment(str, Enum):
     """Available Atonix API environments."""
 
-    US = "https://api.oi.atonix.com"
-    INDIA = "https://api.in.atonix.com"
+    US = "https://api-us.pgapm.io"
+    INDIA = "https://api-in.pgapm.io"
 
 
 logger = logging.getLogger(__name__)

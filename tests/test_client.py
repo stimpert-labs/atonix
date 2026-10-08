@@ -61,7 +61,7 @@ class TestAtonixClient:
         """Client should initialize with default settings."""
         client = AtonixClient(api_key="testkey", private_key=mock_private_key)
 
-        assert client._base_url == "https://api.oi.atonix.com"
+        assert client._base_url == "https://api-us.pgapm.io"
         # Resources should be initialized
         assert hasattr(client, "assets")
         assert hasattr(client, "issues")
