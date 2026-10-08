@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / Packaging
+dist/
+build/
+*.egg-info/
+.eggs/
+docs/
+
+# Unit Test / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type Checking
+.mypy_cache/
+
+# Linting
+.ruff_cache/
+
+# Virtual Environments
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swn
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets (CRITICAL)
+*.pem
+*.key
+.env.local

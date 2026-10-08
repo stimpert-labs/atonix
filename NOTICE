@@ -1,0 +1,28 @@
+atonix — an unofficial Python client for the Prometheus APM (formerly AtonixOI) API
+Copyright (c) 2023-2026 Kolton Stimpert
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Lesser General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version. See COPYING.LESSER and COPYING for the full license texts.
+
+NO WARRANTY / USE AT YOUR OWN RISK
+----------------------------------
+This software is provided "AS IS", WITHOUT WARRANTY OF ANY KIND, express or
+implied, including but not limited to the warranties of MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, and NON-INFRINGEMENT. The entire risk as to
+the quality, accuracy, and performance of the software is with you. In no
+event shall the author or any contributor be liable for any claim, damages,
+loss of data, or other liability — including any impact on operational,
+plant, or asset systems, or on process data written through this library —
+whether in an action of contract, tort, or otherwise, arising from, out of,
+or in connection with the software or its use. See sections 15 and 16 of the
+GNU General Public License v3 (incorporated by the GNU LGPL v3).
+
+TRADEMARKS / NON-AFFILIATION
+----------------------------
+This is an independent, community project. It is not affiliated with,
+endorsed by, sponsored by, or supported by Prometheus Group or any of its
+affiliates. "Atonix", "AtonixOI", "Prometheus", and "Prometheus APM" are
+names or marks of their respective owners and are used here only to describe
+the API this library interoperates with.

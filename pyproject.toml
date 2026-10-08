@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atonix"
+version = "0.5.0"
+description = "Unofficial Python client for the Prometheus APM (formerly AtonixOI) API. Not affiliated with Prometheus Group."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Kolton Stimpert" }
+]
+license = "LGPL-3.0-or-later"
+license-files = ["COPYING", "COPYING.LESSER", "NOTICE"]
+keywords = ["atonix", "atonixoi", "prometheus-apm", "apm", "api", "client", "httpx", "pydantic"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP",
+    "Typing :: Typed",
+]
+dependencies = [
+    "httpx>=0.27.0",
+    "cryptography>=48.0.1,<49.1.0",
+    "pydantic>=2.0.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/stimpert-labs/atonix"
+"Source" = "https://github.com/stimpert-labs/atonix"
+"Bug Tracker" = "https://github.com/stimpert-labs/atonix/issues"
+"Changelog" = "https://github.com/stimpert-labs/atonix/blob/main/CHANGELOG.md"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "RUF", "SIM"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",  # Allow assert statements in tests
+    "S105",  # Mock/fake passwords in tests are not real secrets
+    "S106",  # Mock/fake password arguments in tests are not real secrets
+]
+"verify_install.py" = ["S101"]  # Asserts are intentional in install verification
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+testpaths = ["tests"]
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[dependency-groups]
+dev = [
+    "bump-my-version>=0.28.0",
+    "mypy>=1.13.0",
+    "pdoc>=15.0.4",
+    "pip-audit>=2.7.3",
+    "pre-commit>=4.0.0",
+    "pytest>=9.0.3",
+    "pytest-cov>=6.0.0",
+    "respx>=0.21.0",
+    "ruff>=0.14.13",
+    "twine>=5.1.0",
+]

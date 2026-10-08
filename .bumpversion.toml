@@ -1,0 +1,40 @@
+# Configuration for bump-my-version (https://github.com/callowayproject/bump-my-version)
+#
+# Common commands:
+#   uv run bump-my-version show-bump            # preview next versions
+#   uv run bump-my-version bump patch           # 0.5.0 -> 0.5.1
+#   uv run bump-my-version bump minor           # 0.5.0 -> 0.6.0
+#   uv run bump-my-version bump major --dry-run # preview
+#
+# This will: edit pyproject.toml + CHANGELOG.md, create a commit, and tag v{new_version}.
+
+[tool.bumpversion]
+current_version = "0.5.0"
+parse = '(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)'
+serialize = ["{major}.{minor}.{patch}"]
+search = "{current_version}"
+replace = "{new_version}"
+commit = true
+tag = true
+tag_name = "v{new_version}"
+tag_message = "Release v{new_version}"
+message = "Release v{new_version}"
+allow_dirty = false
+
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
+
+[[tool.bumpversion.files]]
+filename = "CHANGELOG.md"
+search = "## [Unreleased]"
+replace = """## [Unreleased]
+
+## [{new_version}] - {now:%Y-%m-%d}"""
+
+[[tool.bumpversion.files]]
+filename = "CHANGELOG.md"
+search = "[Unreleased]: https://github.com/stimpert-labs/atonix/compare/v{current_version}...HEAD"
+replace = """[Unreleased]: https://github.com/stimpert-labs/atonix/compare/v{new_version}...HEAD
+[{new_version}]: https://github.com/stimpert-labs/atonix/compare/v{current_version}...v{new_version}"""
