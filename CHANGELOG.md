@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-08
+
 ### Added
 - `get_data_for_range` (sync and async) now splits reads over the 250,000-point limit into
   sub-queries, by tag group and, when one tag alone is over the limit, by time window, then
@@ -92,7 +94,8 @@ First open-source release.
 ### Security
 - Bumped `cryptography` to a patched release.
 
-[Unreleased]: https://github.com/stimpert-labs/atonix/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/stimpert-labs/atonix/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/stimpert-labs/atonix/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/stimpert-labs/atonix/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/stimpert-labs/atonix/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/stimpert-labs/atonix/compare/v0.5.0...v0.5.1
