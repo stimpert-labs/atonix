@@ -1,93 +1,45 @@
-# ============================================================================
-# DORMANT release workflow — PyPI publishing is intentionally disabled.
-#
-# The active definition below is a manual no-op (`workflow_dispatch`) so the
-# YAML file parses cleanly and never reports a failed run. The real publish
-# pipeline lives commented out further down.
-#
-# When you are ready to publish to PyPI:
-#   1. Configure a Trusted Publisher on https://pypi.org for this repo:
-#        Owner: stimpert-labs
-#        Repo:  atonix
-#        Workflow filename: release.yml
-#        Environment name:  pypi
-#      Docs: https://docs.pypi.org/trusted-publishers/adding-a-publisher/
-#   2. Create a GitHub Environment named `pypi` (optionally with reviewers).
-#   3. Delete the no-op block below and uncomment the publish block beneath it.
-#   4. Cut a release by running:
-#        uv run bump-my-version bump <patch|minor|major>
-#        git push --follow-tags
-#      The workflow then triggers automatically on tag pushes matching `v*`.
-#
-# The real job uses OIDC (id-token: write) — no API tokens or secrets required.
-# ============================================================================
-
-name: Release
-
 on:
-  workflow_dispatch:
-
-permissions:
-  contents: read
+  push:
+    tags:
+      - "v*"
 
 jobs:
-  noop:
-    name: Release pipeline (disabled)
+  build:
+    name: Build distribution
     runs-on: ubuntu-latest
     steps:
-      - name: Notice
-        run: |
-          echo "PyPI publishing is intentionally disabled."
-          echo "See the header comments in .github/workflows/release.yml"
-          echo "for instructions on enabling the real publish pipeline."
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Install dev dependencies
+        run: uv sync --group dev --frozen
+      - name: Build sdist + wheel
+        run: uv build
+      - name: Validate with twine
+        run: uv run twine check dist/*
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
 
-# ----------------------------------------------------------------------------
-# Real publish pipeline — uncomment (and delete the no-op job above) when
-# Trusted Publishers are configured on pypi.org.
-# ----------------------------------------------------------------------------
-#
-# on:
-#   push:
-#     tags:
-#       - "v*"
-#
-# jobs:
-#   build:
-#     name: Build distribution
-#     runs-on: ubuntu-latest
-#     steps:
-#       - uses: actions/checkout@v4
-#       - uses: astral-sh/setup-uv@v3
-#         with:
-#           enable-cache: true
-#       - name: Install dev dependencies
-#         run: uv sync --group dev --frozen
-#       - name: Build sdist + wheel
-#         run: uv build
-#       - name: Validate with twine
-#         run: uv run twine check dist/*
-#       - name: Upload dist artifact
-#         uses: actions/upload-artifact@v4
-#         with:
-#           name: dist
-#           path: dist/
-#           if-no-files-found: error
-#
-#   publish:
-#     name: Publish to PyPI
-#     needs: [build]
-#     runs-on: ubuntu-latest
-#     environment:
-#       name: pypi
-#       url: https://pypi.org/project/atonix/
-#     permissions:
-#       id-token: write  # required for OIDC / Trusted Publisher
-#     steps:
-#       - name: Download dist artifact
-#         uses: actions/download-artifact@v4
-#         with:
-#           name: dist
-#           path: dist
-#       - name: Publish package distributions to PyPI
-#         uses: pypa/gh-action-pypi-publish@release/v1
+  publish:
+    name: Publish to PyPI
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/atonix/
+    permissions:
+      id-token: write  # required for OIDC / Trusted Publisher
+    steps:
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
 
