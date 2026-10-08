@@ -21,13 +21,16 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ### Initial Setup
 
-1. Clone the repository:
+1. [Fork the repository](https://github.com/stimpert-labs/atonix/fork) to your own GitHub account.
+
+2. Clone your fork and add the upstream remote:
    ```bash
-   git clone https://github.com/stimpert-labs/atonix.git
+   git clone https://github.com/<your-username>/atonix.git
    cd atonix
+   git remote add upstream https://github.com/stimpert-labs/atonix.git
    ```
 
-2. Install dependencies:
+3. Install dependencies:
    ```bash
    uv sync
    ```
@@ -140,10 +143,10 @@ class TestMyFeature:
         respx.get(f"{BASE_URL}/v1/endpoint").mock(
             return_value=Response(200, json=make_api_response([...]))
         )
-        
+
         # Test your code
         result = mock_client.my_feature.my_function()
-        
+
         # Assertions
         assert len(result) == expected_count
 ```
@@ -179,12 +182,12 @@ class TestMyFeature:
 def get_items(self, asset_id: str, skip: int = 0, take: int = 500) -> list[Item]:
     """
     Retrieve items for an asset.
-    
+
     Args:
         asset_id: The unique identifier (GUID) of the asset.
         skip: Number of items to skip for pagination.
         take: Number of items to retrieve per page.
-        
+
     Returns:
         A list of Item objects.
     """
@@ -195,6 +198,34 @@ def get_items(self, asset_id: str, skip: int = 0, take: int = 500) -> list[Item]
 ---
 
 ## Pull Request Process
+
+### Workflow
+
+Contributions are accepted through pull requests from forks. Direct pushes to `main` are not allowed.
+
+1. Sync your fork with upstream and create a topic branch:
+   ```bash
+   git fetch upstream
+   git checkout -b feature/add-xyz upstream/main
+   ```
+2. Make your changes, committing with a sign-off (`git commit -s`).
+3. Push the branch to your fork:
+   ```bash
+   git push -u origin feature/add-xyz
+   ```
+4. Open a pull request from your fork's branch against `stimpert-labs/atonix:main`.
+5. CI runs automatically. For first-time contributors, a maintainer must approve the workflow run before it starts.
+6. A code owner (see [`.github/CODEOWNERS`](.github/CODEOWNERS)) reviews the PR. All required checks must pass and the PR must be approved before it can be merged.
+
+To keep your branch current while the PR is open, rebase on upstream:
+
+```bash
+git fetch upstream
+git rebase upstream/main
+git push --force-with-lease
+```
+
+Maintainers with write access may push branches directly to this repository instead of using a fork, but changes still land through a reviewed pull request.
 
 ### Before Submitting
 
@@ -233,17 +264,17 @@ Use Google-style docstrings:
 def my_function(param1: str, param2: int = 0) -> bool:
     """
     Brief description of what the function does.
-    
+
     Longer explanation if needed, describing behavior,
     edge cases, or important implementation details.
-    
+
     Args:
         param1: Description of param1.
         param2: Description of param2 (default: 0).
-        
+
     Returns:
         Description of return value.
-        
+
     Raises:
         ValueError: When param1 is empty.
         APIError: When the API request fails.
