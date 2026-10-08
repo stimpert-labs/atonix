@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- API reference documentation is now published to GitHub Pages at
+  <https://atonix.stimpert-labs.dev> on each release (`.github/workflows/docs.yml`).
+
 ## [0.5.1] - 2026-10-08
 
 ### Fixed
