@@ -416,8 +416,8 @@ class TestGetDataForRangeEdgeCases:
         assert not query_route.called
 
     @respx.mock
-    def test_query_too_large_chunks_by_tag(self, mock_client):
-        """get_data_for_range should split an oversized many-tag query into tag groups."""
+    def test_query_too_large_chunks_and_reassembles(self, mock_client):
+        """get_data_for_range should split an oversized query into sub-queries under the limit and merge them."""
         server_id = "33333333-3333-3333-3333-333333333333"
         self._mock_archives(server_id, name="1min", interval=60)
         route = respx.post(f"{BASE_URL}/v1/processdata/query").mock(side_effect=query_echo_side_effect)
@@ -429,14 +429,14 @@ class TestGetDataForRangeEdgeCases:
 
         result = pd_api.get_data_for_range(server_id, start, end, tag_ids, "1min")
 
-        # 250,000 // 45,001 = 5 tags per query → 100 queries
-        assert route.call_count == 100
+        # 500 tags x 45,001 points = 22.5M → 91 queries is the minimum possible.
+        assert route.call_count == 91
         for call in route.calls:
             payload = json.loads(call.request.content)
-            assert len(payload["TagIds"]) == 5
-            assert payload["Start"] == start.isoformat()
-            assert payload["End"] == end.isoformat()
+            span = datetime.fromisoformat(payload["End"]) - datetime.fromisoformat(payload["Start"])
+            assert (span.total_seconds() / 60 + 1) * len(payload["TagIds"]) <= _READ_CHUNK_LIMIT
         assert [r.tag_id for r in result] == tag_ids
+        assert all(r.timestamps[0] == start and r.timestamps[-1] == end for r in result)
 
     @respx.mock
     def test_query_too_large_chunks_by_time_and_merges(self, mock_client):
@@ -624,16 +624,38 @@ class TestPlanReadChunks:
             points_per_tag = (end - start).total_seconds() / interval + 1
             assert points_per_tag * len(tags) <= _READ_CHUNK_LIMIT
 
-    def test_wide_query_splits_by_tag(self):
+    def test_wide_short_query_splits_by_tag_only(self):
         start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end = start + timedelta(minutes=45_000)
-        tag_ids = [f"tag-{i}" for i in range(500)]
+        end = start + timedelta(minutes=60)
+        tag_ids = [f"tag-{i}" for i in range(7500)]
 
         chunks = _plan_read_chunks(tag_ids, start, end, 60)
 
         self._assert_within_limit(chunks, 60)
         assert all((s, e) == (start, end) for _, s, e in chunks)
+        assert [len(tags) for tags, _, _ in chunks] == [3750, 3750]
         assert [t for tags, _, _ in chunks for t in tags] == tag_ids
+
+    @pytest.mark.parametrize(
+        ("tag_count", "minutes", "expected"),
+        [
+            (7500, 60, 2),
+            (7500, 1440, 44),
+            (500, 45_000, 91),
+            (2, 527_040, 5),
+            (100, 525_600, 211),
+            (7500, 525_600, 15_780),
+        ],
+    )
+    def test_request_count_is_minimal(self, tag_count, minutes, expected):
+        """Both wide-and-short and narrow-and-long queries should pack into the fewest requests."""
+        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        end = start + timedelta(minutes=minutes)
+
+        chunks = _plan_read_chunks([f"tag-{i}" for i in range(tag_count)], start, end, 60)
+
+        self._assert_within_limit(chunks, 60)
+        assert len(chunks) == expected
 
     def test_long_query_splits_by_time(self):
         start = datetime(2024, 1, 1, tzinfo=timezone.utc)

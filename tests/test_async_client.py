@@ -730,17 +730,17 @@ class TestAsyncProcessData:
         )
         route = respx.post(f"{BASE_URL}/v1/processdata/query").mock(side_effect=query_echo_side_effect)
         start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end = datetime(2025, 1, 1, tzinfo=timezone.utc)  # 527,040 minutes → 3 windows
+        end = datetime(2025, 1, 1, tzinfo=timezone.utc)  # 527,040 minutes
         tag_ids = ["tag-0", "tag-1"]
 
         result = await async_mock_client.process_data.get_data_for_range(server_id, start, end, tag_ids, "1min")
 
-        # 3 windows x 2 tag groups (2 tags don't fit in one ~175k-point window)
-        assert route.call_count == 6
+        # 2 tags x 527,041 points → 5 windows with both tags in each is the minimum.
+        assert route.call_count == 5
         assert [r.tag_id for r in result] == tag_ids
         for r in result:
-            # Each window contributes Start+End; the 2 shared boundaries are deduplicated.
-            assert len(r.timestamps) == 4
+            # Each window contributes Start+End; the 4 shared boundaries are deduplicated.
+            assert len(r.timestamps) == 6
             assert r.timestamps[0] == start
             assert r.timestamps[-1] == end
 

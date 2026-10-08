@@ -80,16 +80,28 @@ def _plan_read_chunks(
 ) -> list[tuple[list[str], datetime, datetime]]:
     """Split a read query into (tag_ids, start, end) sub-queries that each fit within _READ_CHUNK_LIMIT.
 
-    The range is first split into time windows short enough that a single tag fits in
-    one query, then tags are grouped so each (window, tag group) stays under the limit.
-    Windows are planned assuming both endpoints are inclusive, so a window of ``n``
-    intervals counts as ``n + 1`` points per tag.
+    Each sub-query covers ``k`` tags over one time window of ``w`` intervals, with
+    ``k * (w + 1) <= _READ_CHUNK_LIMIT`` (windows are inclusive at both ends, so ``w``
+    intervals is ``w + 1`` points per tag). Every ``k`` is tried and the one giving the
+    fewest requests wins, so both wide-and-short and narrow-and-long queries pack tightly.
+    Windows and tag groups are then evened out without changing the request count.
     """
     total_intervals = math.ceil(_timestamps_per_tag(start_time, end_time, interval))
-    max_intervals_per_window = _READ_CHUNK_LIMIT - 1
-    window_count = max(1, math.ceil(total_intervals / max_intervals_per_window))
-    intervals_per_window = math.ceil(total_intervals / window_count)
-    tags_per_chunk = max(1, _READ_CHUNK_LIMIT // (intervals_per_window + 1))
+    tag_count = len(tag_ids)
+
+    def _layout(tags_per_chunk: int) -> tuple[int, int]:
+        """Return (window_count, group_count) when each request carries ``tags_per_chunk`` tags."""
+        max_intervals = _READ_CHUNK_LIMIT // tags_per_chunk - 1
+        return max(1, math.ceil(total_intervals / max_intervals)), math.ceil(tag_count / tags_per_chunk)
+
+    max_tags_per_chunk = max(1, min(tag_count, _READ_CHUNK_LIMIT // 2))
+    window_count, group_count = min(
+        (_layout(k) for k in range(1, max_tags_per_chunk + 1)), key=lambda layout: layout[0] * layout[1]
+    )
+
+    # Even out windows and groups; each stays within the chosen bounds, so the limit still holds.
+    intervals_per_window = max(1, math.ceil(total_intervals / window_count))
+    tags_per_chunk = math.ceil(tag_count / group_count)
 
     window_span = timedelta(seconds=intervals_per_window * interval)
     windows: list[tuple[datetime, datetime]] = []
@@ -104,7 +116,7 @@ def _plan_read_chunks(
     return [
         (tag_ids[i : i + tags_per_chunk], w_start, w_end)
         for w_start, w_end in windows
-        for i in range(0, len(tag_ids), tags_per_chunk)
+        for i in range(0, tag_count, tags_per_chunk)
     ]
 
 
