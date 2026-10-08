@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-08
+
 ### Fixed
 - Updated `AtonixEnvironment` base URLs to the new Prometheus APM hosts:
   `US` → `https://api-us.pgapm.io`, `INDIA` → `https://api-in.pgapm.io`.
@@ -59,5 +61,6 @@ First open-source release.
 ### Security
 - Bumped `cryptography` to a patched release.
 
-[Unreleased]: https://github.com/stimpert-labs/atonix/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/stimpert-labs/atonix/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/stimpert-labs/atonix/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/stimpert-labs/atonix/releases/tag/v0.5.0
