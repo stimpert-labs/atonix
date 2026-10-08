@@ -342,30 +342,71 @@ uv publish
 
 ## Release Process
 
-Releases are cut from `main` and tagged `vX.Y.Z`. We use
-[`bump-my-version`](https://github.com/callowayproject/bump-my-version)
-(configured in `.bumpversion.toml`) to coordinate version bumps across
-`pyproject.toml`, `CHANGELOG.md`, and `uv.lock`.
+`main` is the only long-lived branch and is always kept releasable. Changes land
+on `main` with an entry under `## [Unreleased]` in `CHANGELOG.md`, and a release
+is a `vX.Y.Z` tag on `main`. Publishing to PyPI and deploying the docs only
+happen for tags, so unreleased changes on `main` don't reach users.
 
-1. Ensure `CHANGELOG.md` has entries under `## [Unreleased]` describing the
-   release. Move/rename as needed before bumping.
-2. Make sure your working tree is clean and on `main`:
-   ```bash
-   git checkout main && git pull
-   ```
-3. Bump the version (creates a commit and tag):
-   ```bash
-   uv run bump-my-version bump patch    # or: minor / major
-   ```
-4. Push the commit and tag together:
-   ```bash
-   git push --follow-tags
-   ```
-5. The release workflow (`.github/workflows/release.yml`) is currently
-   **commented out**. Once PyPI Trusted Publishers are configured for this
-   repo, uncomment it (see the header comments in that file) and a tag push
-   will publish the build to PyPI automatically. Until then, builds remain
-   local-only — `uv build` followed by manual `uv publish` if needed.
+Version bumps are handled by
+[`bump-my-version`](https://github.com/callowayproject/bump-my-version)
+(configured in `.bumpversion.toml`), which updates `pyproject.toml`,
+`CHANGELOG.md`, and `uv.lock` together.
+
+### Cutting a release (maintainers)
+
+1. Make sure `## [Unreleased]` in `CHANGELOG.md` describes everything that will
+   ship.
+2. In **Actions → Prepare release → Run workflow**, choose `patch`, `minor`, or
+   `major`. The workflow bumps the version on a `release/vX.Y.Z` branch and
+   opens a **Release vX.Y.Z** pull request.
+3. Review the PR, wait for CI to pass, and merge it.
+4. On merge, `tag-release.yml` tags the merge commit as `vX.Y.Z`. That tag
+   triggers `release.yml`, which builds the package, publishes it to PyPI,
+   and creates a GitHub Release with the changelog notes. It also triggers
+   `docs.yml`, which deploys the API docs.
+
+No local git commands are needed.
+
+### Cadence
+
+There is no fixed schedule; release when there's something worth shipping.
+
+- Ship bug fixes and security fixes promptly as patch releases.
+- Group new features into minor releases.
+- Dependency-only updates don't need their own release unless they fix a security issue.
+
+### One-time setup: release GitHub App
+
+The release workflows use a GitHub App token instead of `GITHUB_TOKEN`.
+GitHub doesn't run workflows for PRs or tags created with `GITHUB_TOKEN`,
+so without the App, CI wouldn't run on the release PR and the tag wouldn't
+start publishing.
+
+1. [Create a GitHub App](https://github.com/settings/apps/new) owned by the
+   account or organization that owns this repo. Disable the webhook, and grant
+   these repository permissions:
+   - **Contents:** read and write
+   - **Pull requests:** read and write
+2. Generate a private key for the App, then install the App on this repository only.
+3. In the repository settings, add:
+   - Variable `RELEASE_APP_CLIENT_ID`: the App's Client ID.
+   - Secret `RELEASE_APP_PRIVATE_KEY`: the contents of the private key file.
+4. If you add a ruleset that restricts who can create `v*` tags, add the App to
+   its bypass list.
+
+### Fallback: releasing locally
+
+If the workflows are unavailable, a maintainer with push access can release
+from a clean, up-to-date `main`:
+
+```bash
+git checkout main && git pull
+uv run bump-my-version bump patch    # or: minor / major (commits and tags)
+git push --follow-tags
+```
+
+Pushing the tag triggers `release.yml` and `docs.yml` as usual. This requires
+permission to push directly to `main`.
 
 ---
 

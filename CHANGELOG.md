@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Releases are now cut through GitHub Actions. The "Prepare release" workflow
+  opens a version-bump PR; merging it tags the release, publishes to PyPI,
+  creates a GitHub Release with the changelog notes, and deploys the docs.
+
 ## [0.5.3] - 2026-10-08
 
 ### Fixed

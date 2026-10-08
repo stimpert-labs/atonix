@@ -1,5 +1,10 @@
 # Configuration for bump-my-version (https://github.com/callowayproject/bump-my-version)
 #
+# Releases are normally cut with the "Prepare release" GitHub Actions workflow
+# (.github/workflows/prepare-release.yml), which runs
+# `bump-my-version bump <part> --no-commit --no-tag` on a release branch.
+# See "Release Process" in CONTRIBUTING.md.
+#
 # Common commands:
 #   uv run bump-my-version show-bump            # preview next versions
 #   uv run bump-my-version bump patch           # 0.5.0 -> 0.5.1

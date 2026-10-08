@@ -1,7 +1,16 @@
+name: Release
+
+# Builds and publishes a release when a vX.Y.Z tag is pushed. Tags are normally
+# created by tag-release.yml after a release PR is merged; pushing a tag by hand
+# also works as a fallback.
+
 on:
   push:
     tags:
       - "v*"
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -42,3 +51,33 @@ jobs:
           path: dist
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    name: Create GitHub Release
+    needs: [publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download dist artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: dist
+          path: dist
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG already exists; uploading assets only"
+            gh release upload "$TAG" dist/* --clobber
+            exit 0
+          fi
+          if python3 scripts/changelog_section.py "$TAG" > notes.md; then
+            notes_args=(--notes-file notes.md)
+          else
+            notes_args=(--generate-notes)
+          fi
+          gh release create "$TAG" dist/* --verify-tag --title "$TAG" "${notes_args[@]}"

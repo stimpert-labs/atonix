@@ -1,0 +1,114 @@
+name: Prepare release
+
+# Opens a "Release vX.Y.Z" pull request that bumps the version in
+# pyproject.toml, CHANGELOG.md, and uv.lock. Merging that PR triggers
+# tag-release.yml, which tags the merge commit and starts publishing.
+#
+# Uses a GitHub App token (not GITHUB_TOKEN) so that CI runs on the release
+# PR. Requires repository variable RELEASE_APP_CLIENT_ID and secret
+# RELEASE_APP_PRIVATE_KEY. See "Release Process" in CONTRIBUTING.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version part to bump
+        required: true
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Open release PR
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install dev dependencies
+        run: uv sync --group dev --locked
+
+      - name: Check that [Unreleased] has entries
+        run: python3 scripts/changelog_section.py Unreleased > /dev/null
+
+      - name: Compute new version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          new_version="$(uv run bump-my-version show new_version --increment "$BUMP")"
+          if ! [[ "$new_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Unexpected version '$new_version'"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$new_version" > /dev/null; then
+            echo "::error::Tag v$new_version already exists"
+            exit 1
+          fi
+          if git ls-remote --exit-code --heads origin "refs/heads/release/v$new_version" > /dev/null; then
+            echo "::error::Branch release/v$new_version already exists; close its PR and delete the branch to retry"
+            exit 1
+          fi
+          echo "new_version=$new_version" >> "$GITHUB_OUTPUT"
+
+      - name: Configure git as the App bot user
+        env:
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          user_id="$(gh api "/users/${APP_SLUG}[bot]" --jq .id)"
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${user_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+
+      - name: Bump version and commit
+        env:
+          BUMP: ${{ inputs.bump }}
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
+        run: |
+          git switch -c "release/v$NEW_VERSION"
+          uv run bump-my-version bump "$BUMP" --no-commit --no-tag
+          git commit --all --signoff --message "Release v$NEW_VERSION"
+          git push origin "release/v$NEW_VERSION"
+
+      - name: Open pull request
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
+        run: |
+          {
+            echo "Bumps the version to \`$NEW_VERSION\` in \`pyproject.toml\`, \`CHANGELOG.md\`, \`uv.lock\`, and \`.bumpversion.toml\`."
+            echo
+            echo "Merging this PR tags \`v$NEW_VERSION\`, publishes to PyPI, creates a GitHub Release, and deploys the docs."
+            echo
+            echo "## Changelog"
+            echo
+            python3 scripts/changelog_section.py "$NEW_VERSION"
+          } > pr-body.md
+          gh pr create \
+            --base main \
+            --head "release/v$NEW_VERSION" \
+            --title "Release v$NEW_VERSION" \
+            --body-file pr-body.md
