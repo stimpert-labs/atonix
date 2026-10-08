@@ -69,7 +69,7 @@ jobs:
               --cov=atonix --cov-report=xml --cov-report=term-missing
       - name: Upload coverage artifact
         if: matrix.python-version == '3.12'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-xml
           path: coverage.xml
@@ -91,7 +91,7 @@ jobs:
       - name: Validate with twine
         run: uv run twine check dist/*
       - name: Upload dist artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         with:
           name: dist
           path: dist/
