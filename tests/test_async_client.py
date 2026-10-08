@@ -9,7 +9,7 @@ import respx
 from httpx import Response
 
 from atonix.client import AsyncAtonixClient
-from atonix.exceptions import APIError, AuthenticationError, NotFoundError, ServerError
+from atonix.exceptions import APIError, AuthenticationError, NotFoundError, QuerySizeError, ServerError
 from atonix.object_models.assets import Asset
 from atonix.object_models.issues import BareIssue, Issue, IssueCreate, IssueKeyword, IssuePatch
 from atonix.object_models.models import Action, AlertState, Model, ModelConfiguration
@@ -27,6 +27,7 @@ from tests.conftest import (
     make_servers,
     make_tag,
     make_tags,
+    query_echo_side_effect,
 )
 
 # ---------------------------------------------------------------------------
@@ -705,7 +706,7 @@ class TestAsyncProcessData:
     @pytest.mark.anyio
     @respx.mock
     async def test_get_data_for_range_query_too_large(self, async_mock_client):
-        """async get_data_for_range should raise ValueError when point count exceeds limit."""
+        """async get_data_for_range(chunk=False) should raise QuerySizeError when point count exceeds limit."""
         server_id = "33333333-3333-3333-3333-333333333333"
         respx.get(f"{BASE_URL}/v1/processdata/servers/{server_id}/archives").mock(
             return_value=Response(
@@ -716,8 +717,32 @@ class TestAsyncProcessData:
         start = datetime(2024, 1, 1, tzinfo=timezone.utc)
         end = datetime(2025, 1, 1, tzinfo=timezone.utc)
         tag_ids = [f"tag-{i}" for i in range(500)]
-        with pytest.raises(ValueError, match="Query size exceeds limit"):
-            await async_mock_client.process_data.get_data_for_range(server_id, start, end, tag_ids, "1min")
+        with pytest.raises(QuerySizeError, match="Query size exceeds limit"):
+            await async_mock_client.process_data.get_data_for_range(server_id, start, end, tag_ids, "1min", chunk=False)
+
+    @pytest.mark.anyio
+    @respx.mock
+    async def test_get_data_for_range_chunks_large_query(self, async_mock_client):
+        """async get_data_for_range should split an oversized query and reassemble per-tag results."""
+        server_id = "33333333-3333-3333-3333-333333333333"
+        respx.get(f"{BASE_URL}/v1/processdata/servers/{server_id}/archives").mock(
+            return_value=Response(200, json=make_api_response([{"Name": "1min", "Interval": 60}], count=1))
+        )
+        route = respx.post(f"{BASE_URL}/v1/processdata/query").mock(side_effect=query_echo_side_effect)
+        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        end = datetime(2025, 1, 1, tzinfo=timezone.utc)  # 527,040 minutes
+        tag_ids = ["tag-0", "tag-1"]
+
+        result = await async_mock_client.process_data.get_data_for_range(server_id, start, end, tag_ids, "1min")
+
+        # 2 tags x 527,041 points → 5 windows with both tags in each is the minimum.
+        assert route.call_count == 5
+        assert [r.tag_id for r in result] == tag_ids
+        for r in result:
+            # Each window contributes Start+End; the 4 shared boundaries are deduplicated.
+            assert len(r.timestamps) == 6
+            assert r.timestamps[0] == start
+            assert r.timestamps[-1] == end
 
     @pytest.mark.anyio
     @respx.mock

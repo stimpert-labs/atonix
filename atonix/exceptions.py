@@ -54,3 +54,28 @@ class APIError(AtonixError):
         if self.status_code:
             return f"{super().__str__()} (Status: {self.status_code})"
         return super().__str__()
+
+
+class QuerySizeError(AtonixError, ValueError):
+    """
+    Raised when a process data read exceeds the per-query point limit and chunking is disabled.
+
+    Also subclasses ``ValueError`` for backward compatibility with code that caught the
+    bare ``ValueError`` previously raised in this situation.
+
+    Attributes:
+        limit: Maximum tag x timestamp points allowed per query.
+        tag_count: Number of tags requested.
+        timestamps_per_tag: Estimated number of timestamps per tag for the requested range.
+        total_points: Estimated total points (``tag_count * timestamps_per_tag``).
+    """
+
+    def __init__(self, limit: int, tag_count: int, timestamps_per_tag: float):
+        self.limit = limit
+        self.tag_count = tag_count
+        self.timestamps_per_tag = timestamps_per_tag
+        self.total_points = tag_count * timestamps_per_tag
+        super().__init__(
+            f"Query size exceeds limit of {limit} points: {tag_count} tags x "
+            f"{timestamps_per_tag:.0f} timestamps per tag = {self.total_points:.0f} points."
+        )

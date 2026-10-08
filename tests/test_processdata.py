@@ -2,20 +2,30 @@
 # Copyright (c) 2023-2026 Kolton Stimpert
 """Tests for the ProcessData resource."""
 
+import json
 from datetime import datetime, timedelta, timezone
+from itertools import pairwise
 
 import pytest
 import respx
 from httpx import Response
 
+from atonix.exceptions import AtonixError, QuerySizeError
 from atonix.object_models.processdata import Server, Tag, TagData
-from atonix.processdata import ProcessData, _validate_query_size
+from atonix.processdata import (
+    _READ_CHUNK_LIMIT,
+    ProcessData,
+    _merge_tag_results,
+    _plan_read_chunks,
+    _validate_query_size,
+)
 from tests.conftest import (
     BASE_URL,
     make_api_response,
     make_servers,
     make_tag,
     make_tags,
+    query_echo_side_effect,
 )
 
 
@@ -380,19 +390,79 @@ class TestGetDataForRangeEdgeCases:
             pd_api.get_data_for_range(server_id, start, end, ["tag-id"], "1min")
 
     @respx.mock
-    def test_query_too_large_raises(self, mock_client):
-        """get_data_for_range should raise ValueError when point count exceeds limit."""
+    def test_query_too_large_raises_when_chunking_disabled(self, mock_client):
+        """get_data_for_range(chunk=False) should raise QuerySizeError when point count exceeds limit."""
         server_id = "33333333-3333-3333-3333-333333333333"
-        # interval=60s, 1 year range, 500 tags → way over 250,000 limit
+        # interval=60s, 1 day range, 500 tags → 720,000 points, over the 250,000 limit
         self._mock_archives(server_id, name="1min", interval=60)
+        query_route = respx.post(f"{BASE_URL}/v1/processdata/query")
 
         pd_api = ProcessData(mock_client)
         start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end = datetime(2025, 1, 1, tzinfo=timezone.utc)  # 1 year
+        end = datetime(2024, 1, 2, tzinfo=timezone.utc)
         tag_ids = [f"tag-{i}" for i in range(500)]
 
-        with pytest.raises(ValueError, match="Query size exceeds limit"):
-            pd_api.get_data_for_range(server_id, start, end, tag_ids, "1min")
+        with pytest.raises(QuerySizeError, match="Query size exceeds limit") as exc_info:
+            pd_api.get_data_for_range(server_id, start, end, tag_ids, "1min", chunk=False)
+
+        err = exc_info.value
+        # Typed, but still catchable by pre-existing `except ValueError` handlers.
+        assert isinstance(err, AtonixError)
+        assert isinstance(err, ValueError)
+        assert err.limit == _READ_CHUNK_LIMIT
+        assert err.tag_count == 500
+        assert err.timestamps_per_tag == 1440
+        assert err.total_points == 720_000
+        assert not query_route.called
+
+    @respx.mock
+    def test_query_too_large_chunks_and_reassembles(self, mock_client):
+        """get_data_for_range should split an oversized query into sub-queries under the limit and merge them."""
+        server_id = "33333333-3333-3333-3333-333333333333"
+        self._mock_archives(server_id, name="1min", interval=60)
+        route = respx.post(f"{BASE_URL}/v1/processdata/query").mock(side_effect=query_echo_side_effect)
+
+        pd_api = ProcessData(mock_client)
+        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        end = start + timedelta(minutes=45_000)
+        tag_ids = [f"tag-{i}" for i in range(500)]
+
+        result = pd_api.get_data_for_range(server_id, start, end, tag_ids, "1min")
+
+        # 500 tags x 45,001 points = 22.5M → 91 queries is the minimum possible.
+        assert route.call_count == 91
+        for call in route.calls:
+            payload = json.loads(call.request.content)
+            span = datetime.fromisoformat(payload["End"]) - datetime.fromisoformat(payload["Start"])
+            assert (span.total_seconds() / 60 + 1) * len(payload["TagIds"]) <= _READ_CHUNK_LIMIT
+        assert [r.tag_id for r in result] == tag_ids
+        assert all(r.timestamps[0] == start and r.timestamps[-1] == end for r in result)
+
+    @respx.mock
+    def test_query_too_large_chunks_by_time_and_merges(self, mock_client):
+        """A single tag over the limit should be split into time windows and reassembled without duplicates."""
+        server_id = "33333333-3333-3333-3333-333333333333"
+        self._mock_archives(server_id, name="1min", interval=60)
+        route = respx.post(f"{BASE_URL}/v1/processdata/query").mock(side_effect=query_echo_side_effect)
+
+        pd_api = ProcessData(mock_client)
+        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        end = start + timedelta(minutes=300_000)
+
+        result = pd_api.get_data_for_range(server_id, start, end, ["tag-0"], "1min")
+
+        assert route.call_count == 2
+        payloads = [json.loads(c.request.content) for c in route.calls]
+        assert payloads[0]["Start"] == start.isoformat()
+        assert payloads[0]["End"] == payloads[1]["Start"]
+        assert payloads[1]["End"] == end.isoformat()
+
+        assert len(result) == 1
+        boundary = datetime.fromisoformat(payloads[0]["End"])
+        # Shared boundary point appears once.
+        assert result[0].timestamps == [start, boundary, end]
+        assert result[0].values == [1.0, 2.0, 2.0]
+        assert result[0].statuses == [0, 0, 0]
 
     @respx.mock
     def test_api_failure_response_raises(self, mock_client):
@@ -543,3 +613,91 @@ class TestPayloadLogging:
 
         monkeypatch.delenv("ATONIX_LOG_PAYLOADS", raising=False)
         assert _payload_logging_enabled() is False
+
+
+class TestPlanReadChunks:
+    """Tests for the _plan_read_chunks helper."""
+
+    @staticmethod
+    def _assert_within_limit(chunks, interval):
+        for tags, start, end in chunks:
+            points_per_tag = (end - start).total_seconds() / interval + 1
+            assert points_per_tag * len(tags) <= _READ_CHUNK_LIMIT
+
+    def test_wide_short_query_splits_by_tag_only(self):
+        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        end = start + timedelta(minutes=60)
+        tag_ids = [f"tag-{i}" for i in range(7500)]
+
+        chunks = _plan_read_chunks(tag_ids, start, end, 60)
+
+        self._assert_within_limit(chunks, 60)
+        assert all((s, e) == (start, end) for _, s, e in chunks)
+        assert [len(tags) for tags, _, _ in chunks] == [3750, 3750]
+        assert [t for tags, _, _ in chunks for t in tags] == tag_ids
+
+    @pytest.mark.parametrize(
+        ("tag_count", "minutes", "expected"),
+        [
+            (7500, 60, 2),
+            (7500, 1440, 44),
+            (500, 45_000, 91),
+            (2, 527_040, 5),
+            (100, 525_600, 211),
+            (7500, 525_600, 15_780),
+        ],
+    )
+    def test_request_count_is_minimal(self, tag_count, minutes, expected):
+        """Both wide-and-short and narrow-and-long queries should pack into the fewest requests."""
+        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        end = start + timedelta(minutes=minutes)
+
+        chunks = _plan_read_chunks([f"tag-{i}" for i in range(tag_count)], start, end, 60)
+
+        self._assert_within_limit(chunks, 60)
+        assert len(chunks) == expected
+
+    def test_long_query_splits_by_time(self):
+        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        end = datetime(2025, 1, 1, tzinfo=timezone.utc)  # 527,040 minutes
+
+        chunks = _plan_read_chunks(["tag-0", "tag-1"], start, end, 60)
+
+        self._assert_within_limit(chunks, 60)
+        windows = sorted({(s, e) for _, s, e in chunks})
+        assert windows[0][0] == start
+        assert windows[-1][1] == end
+        # Windows are contiguous.
+        assert all(a[1] == b[0] for a, b in pairwise(windows))
+        # Every tag is queried in every window.
+        for window in windows:
+            assert sorted(t for tags, s, e in chunks if (s, e) == window for t in tags) == ["tag-0", "tag-1"]
+
+
+class TestMergeTagResults:
+    """Tests for the _merge_tag_results helper."""
+
+    def test_preserves_request_order_and_keeps_errors(self):
+        t0 = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        t1 = t0 + timedelta(minutes=1)
+        t2 = t0 + timedelta(minutes=2)
+        chunk_a = [
+            TagData(tag_id="b", http_code=200, timestamps=[t0, t1], values=[1.0, 2.0], statuses=[0, 0]),
+            TagData(tag_id="a", http_code=200, timestamps=[t0], values=[5.0], statuses=[0]),
+        ]
+        chunk_b = [
+            TagData(tag_id="b", http_code=200, timestamps=[t1, t2], values=[2.0, 3.0], statuses=[0, 1]),
+            TagData(tag_id="a", http_code=404, error="not found"),
+        ]
+
+        merged = _merge_tag_results(["a", "b"], [chunk_a, chunk_b])
+
+        assert [m.tag_id for m in merged] == ["a", "b"]
+        assert merged[0].http_code == 404
+        assert merged[0].error == "not found"
+        assert merged[0].values == [5.0]
+        assert merged[1].timestamps == [t0, t1, t2]
+        assert merged[1].values == [1.0, 2.0, 3.0]
+        assert merged[1].statuses == [0, 0, 1]
+        # Inputs are not mutated.
+        assert chunk_a[0].timestamps == [t0, t1]

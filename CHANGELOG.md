@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `get_data_for_range` (sync and async) now splits reads over the 250,000-point limit into
+  sub-queries, by tag group and, when one tag alone is over the limit, by time window, then
+  reassembles the per-tag series. Pass `chunk=False` to keep the old strict behavior. (#31)
+- `QuerySizeError` (exported from `atonix`) is raised for oversized reads when `chunk=False`.
+  It carries `limit`, `tag_count`, `timestamps_per_tag` and `total_points`. It subclasses
+  both `AtonixError` and `ValueError`, so existing `except ValueError` handlers still catch it.
+
 ## [0.5.3] - 2026-10-08
 
 ### Fixed
