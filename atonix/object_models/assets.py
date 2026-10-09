@@ -15,5 +15,5 @@ class Asset(BaseAtonixModel):
     desc: str = Field(alias="Desc")
     parent_id: str | None = Field(default=None, alias="ParentId")
     asset_type_name: str = Field(alias="AssetTypeName")
-    create_date: datetime = Field(alias="CreateDate")
-    change_date: datetime = Field(alias="ChangeDate")
+    create_date: datetime | None = Field(default=None, alias="CreateDate")
+    change_date: datetime | None = Field(default=None, alias="ChangeDate")

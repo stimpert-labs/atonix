@@ -184,6 +184,51 @@ class TestAsyncAtonixClient:
         assert route.call_count == 2
 
 
+class TestAsyncRequestBehavior:
+    """Async parity for request signing and max_retries handling (#13, #15)."""
+
+    @pytest.mark.anyio
+    @respx.mock
+    async def test_max_retries_zero_still_sends_request(self, mock_private_key):
+        route = respx.get(f"{BASE_URL}/v1/assets").mock(
+            return_value=Response(200, json=make_api_response([make_asset()]))
+        )
+        client = AsyncAtonixClient(api_key="testkey", private_key=mock_private_key, max_retries=0)
+
+        result = await client.get("/v1/assets")
+
+        assert result is not None
+        assert result["Success"] is True
+        assert route.call_count == 1
+
+    @pytest.mark.anyio
+    @respx.mock
+    async def test_max_retries_zero_raises_without_retrying(self, mock_private_key):
+        route = respx.get(f"{BASE_URL}/v1/assets").mock(return_value=Response(503, json={"Success": False}))
+        client = AsyncAtonixClient(api_key="testkey", private_key=mock_private_key, max_retries=0)
+
+        with pytest.raises(ServerError):
+            await client.get("/v1/assets")
+        assert route.call_count == 1
+
+    @pytest.mark.anyio
+    @respx.mock
+    async def test_post_sends_signed_body_bytes(self, async_mock_client):
+        import json
+
+        from atonix.client import _encode_json_body
+
+        route = respx.post(f"{BASE_URL}/v1/issues").mock(return_value=Response(200, json=make_api_response([])))
+        body = {"Title": "Température - 温度", "Tags": ["b", "a"]}
+
+        await async_mock_client.post("/v1/issues", json=body)
+
+        request = route.calls.last.request
+        assert request.content == _encode_json_body(body)
+        assert request.headers["Content-Type"] == "application/json"
+        assert json.loads(request.content) == body
+
+
 # ---------------------------------------------------------------------------
 # AsyncAssets
 # ---------------------------------------------------------------------------

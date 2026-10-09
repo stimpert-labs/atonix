@@ -130,6 +130,30 @@ class TestAssetModel:
 
         assert asset.parent_id is None
 
+    def test_parse_asset_with_null_dates(self):
+        """Asset should accept null CreateDate/ChangeDate (#21)."""
+        data = {
+            "Id": "00000000-0000-0000-0000-000000000001",
+            "Abbrev": "Asset1",
+            "Desc": "Test Asset 1",
+            "ParentId": None,
+            "AssetTypeName": "Equipment",
+            "CreateDate": None,
+            "ChangeDate": None,
+        }
+
+        asset = Asset(**data)
+
+        assert asset.create_date is None
+        assert asset.change_date is None
+
+    def test_parse_asset_with_missing_dates(self):
+        """Asset should accept CreateDate/ChangeDate being absent."""
+        asset = Asset(Id="00000000-0000-0000-0000-000000000001", Abbrev="A", Desc="D", AssetTypeName="Equipment")
+
+        assert asset.create_date is None
+        assert asset.change_date is None
+
 
 class TestIssueModels:
     """Tests for Issue-related Pydantic models."""

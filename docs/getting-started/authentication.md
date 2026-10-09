@@ -82,7 +82,7 @@ With everything set, construction is just `AtonixClient()`.
 | ------------- | ------------------------ | --------------------------------------------------------------------------- |
 | `environment` | `AtonixEnvironment.US`   | An [`AtonixEnvironment`][atonix.AtonixEnvironment] (`US`, `INDIA`) or a custom base URL. |
 | `timeout`     | `30.0`                   | Per-request timeout in seconds.                                             |
-| `max_retries` | `3`                      | Retries for 429 and 5xx responses.                                          |
+| `max_retries` | `3`                      | Max attempts per request for 429, 5xx, and network errors (min. 1 attempt). |
 
 ```python
 from atonix import AtonixClient, AtonixEnvironment

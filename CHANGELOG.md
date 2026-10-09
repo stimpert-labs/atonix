@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Requests with a JSON body are now serialized once, and the signature is computed from the
+  exact body text that is sent (`Content-Type: application/json`). Before, httpx re-serialized
+  the body, so the signed and sent body could differ (always with httpx 0.27, and for non-ASCII
+  bodies with 0.28). The bytes sent are unchanged from httpx 0.28's `json=` encoding. (#13)
+- Request signing now encodes the challenge string the way the Atonix auth spec does (.NET
+  `Encoding.ASCII`, so each non-ASCII character becomes `?`) instead of raising
+  `UnicodeEncodeError`. Non-ASCII query values and JSON bodies now sign correctly. (#12)
+- `max_retries=0` no longer makes `request()` return `None` without sending anything. Every
+  request is attempted at least once, and a negative `max_retries` raises `ValueError`. (#15)
+- `Asset.create_date` and `Asset.change_date` are now optional, so a null date no longer breaks
+  asset iteration mid-page. (#21)
+
 ### Changed
 - The `cryptography` requirement no longer has an upper bound (now `cryptography>=48.0.1`), so
   installing `atonix` no longer blocks newer `cryptography` releases in your environment.

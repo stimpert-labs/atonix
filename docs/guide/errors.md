@@ -28,7 +28,8 @@ except AtonixError as e:
 ## Retries
 
 429 and 5xx responses are retried with backoff before an exception is raised. Set the number of
-attempts with `max_retries` on the client (default 3; `0` turns retries off).
+attempts with `max_retries` on the client (default 3; `0` or `1` turns retries off). Every request is
+attempted at least once.
 
 ## Inspecting `APIError`
 
