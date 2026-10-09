@@ -19,6 +19,8 @@ Run with:
 
 import pytest
 
+pytestmark = pytest.mark.integration
+
 
 class TestLiveAssets:
     """Integration tests for Assets API."""
