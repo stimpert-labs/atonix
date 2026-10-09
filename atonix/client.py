@@ -94,14 +94,26 @@ def _clock_skew_hint(message: str, response: httpx.Response | None) -> str:
 
 
 def _encode_json_body(body: Any) -> bytes:
-    """Serialize a JSON request body to the exact bytes that are both signed and sent.
+    """Serialize a JSON request body once, to the exact bytes that are signed and sent.
 
-    The body is serialized once and the same bytes go into the signature and onto
-    the wire, so the two can never disagree. Non-ASCII characters are written as
-    ``\\uXXXX`` escapes, which keeps the body pure ASCII (JSON parsers decode the
-    escapes back to the original characters).
+    Compact separators satisfy the auth spec's "all meaningless spaces and newline
+    characters must be removed" rule. The output (UTF-8, non-ASCII kept as-is) is
+    byte-identical to what httpx >= 0.28 produces for ``json=``.
     """
-    return json.dumps(body, separators=(",", ":"), allow_nan=False).encode("ascii")
+    return json.dumps(body, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
+def _encode_challenge(representation: str) -> bytes:
+    """Encode the challenge string the way the server does, with .NET ``Encoding.ASCII``.
+
+    The Atonix auth spec signs ``Encoding.ASCII.GetBytes(challengeString)``, which does
+    not raise on non-ASCII text: it replaces every UTF-16 code unit it cannot encode with
+    ``?``. A character outside the Basic Multilingual Plane (a surrogate pair) therefore
+    becomes ``??``.
+    """
+    if representation.isascii():
+        return representation.encode("ascii")
+    return "".join(ch if ch.isascii() else ("??" if ord(ch) > 0xFFFF else "?") for ch in representation).encode("ascii")
 
 
 class Auth:
@@ -173,7 +185,7 @@ class Auth:
     def _sign(self, representation: str) -> str:
         """Signs the request representation using the private key."""
         signature = self.private_key.sign(
-            representation.encode("utf-8"),
+            _encode_challenge(representation),
             padding.PKCS1v15(),
             hashes.SHA256(),
         )

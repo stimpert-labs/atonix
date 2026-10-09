@@ -114,7 +114,7 @@ class TestLiveRequestSigning:
     """
 
     def test_non_ascii_query_param_signature_accepted(self, live_client):
-        """A non-ASCII query value is signed as UTF-8 and accepted by the server."""
+        """A non-ASCII query value is signed like .NET Encoding.ASCII and accepted by the server."""
         from atonix.exceptions import AtonixError, AuthenticationError
 
         try:
@@ -125,7 +125,7 @@ class TestLiveRequestSigning:
             pass
 
     def test_json_body_signature_accepted(self, live_client):
-        """A POST body is signed and sent as the same bytes, and the server accepts it."""
+        """A non-ASCII POST body is signed from the exact wire text, and the server accepts it."""
         from datetime import datetime, timedelta, timezone
         from itertools import islice
 
