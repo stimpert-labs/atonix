@@ -2,6 +2,7 @@
 # Copyright (c) 2023-2026 Kolton Stimpert
 """Tests for the async API: AsyncAtonixClient and async resource classes."""
 
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -11,7 +12,15 @@ from httpx import Response
 from atonix.client import AsyncAtonixClient
 from atonix.exceptions import APIError, AuthenticationError, NotFoundError, QuerySizeError, ServerError
 from atonix.object_models.assets import Asset
-from atonix.object_models.issues import BareIssue, Issue, IssueCreate, IssueKeyword, IssuePatch
+from atonix.object_models.issues import (
+    BareIssue,
+    Issue,
+    IssueCreate,
+    IssueDiscussionEntry,
+    IssueDiscussionEntryCreate,
+    IssueKeyword,
+    IssuePatch,
+)
 from atonix.object_models.models import Action, AlertState, Model, ModelConfiguration
 from atonix.object_models.processdata import Server, Tag, TagData
 from tests.conftest import (
@@ -353,6 +362,7 @@ class TestAsyncIssues:
         route = respx.delete(f"{BASE_URL}/v1/issues/{issue_id}/keywords").mock(return_value=Response(204))
         await async_mock_client.issues.delete_keywords(issue_id, ["K1"])
         assert route.called
+        assert json.loads(route.calls.last.request.content) == [{"KeywordDesc": "K1"}]
 
     @pytest.mark.anyio
     @respx.mock
@@ -382,6 +392,20 @@ class TestAsyncIssues:
         )
         result = [e async for e in async_mock_client.issues.get_discussion_entries(issue_id)]
         assert len(result) == 2
+
+    @pytest.mark.anyio
+    @respx.mock
+    async def test_create_discussion_entry(self, async_mock_client):
+        """async create_discussion_entry should POST and return the created entry."""
+        issue_id = "11111111-1111-1111-1111-111111111111"
+        route = respx.post(f"{BASE_URL}/v1/issues/{issue_id}/discussionentries").mock(
+            return_value=Response(201, json=make_api_response([{"Title": "T", "Contents": "C"}], count=1))
+        )
+        entry = IssueDiscussionEntryCreate(title="T", contents="C")
+        result = await async_mock_client.issues.create_discussion_entry(issue_id, entry)
+        assert route.called
+        assert isinstance(result, IssueDiscussionEntry)
+        assert result.attachment_uploads == []
 
     @pytest.mark.anyio
     @respx.mock
@@ -678,7 +702,6 @@ class TestAsyncProcessData:
         await async_mock_client.process_data.write_tag_data(server_id, "1min", tag_data)
 
         assert len(respx.calls) == 1
-        import json
 
         payload = json.loads(route.calls[0].request.content)
         assert len(payload["TagData"]) == 50

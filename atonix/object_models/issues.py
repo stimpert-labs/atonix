@@ -107,12 +107,36 @@ class IssueDiscussionEntryDetails(BaseAtonixModel):
 
 
 class IssueDiscussionEntryCreate(BaseAtonixModel):
-    """Properties for creating new discussion entry."""
+    """Properties for creating new discussion entry.
+
+    ``attachment_files`` lists the file names (with extension) you intend to
+    attach; the created entry returns a temporary upload link for each.
+    """
 
     title: str = Field(alias="Title")
     contents: str = Field(alias="Contents")
     created_by: str | None = Field(default=None, alias="CreatedBy")
     attachment_files: list[str] = Field(default_factory=list, alias="AttachmentFiles")
+
+
+class AttachmentUpload(BaseAtonixModel):
+    """Temporary link for uploading an attachment file to a discussion entry."""
+
+    filename: str = Field(alias="Filename")
+    temporary_link: str = Field(alias="TemporaryLink")
+    link_expiration_date: datetime | None = Field(default=None, alias="LinkExpirationDate")
+
+
+class IssueDiscussionEntry(BaseAtonixModel):
+    """Discussion entry as returned when it is created."""
+
+    title: str = Field(alias="Title")
+    contents: str = Field(alias="Contents")
+    created_by: str | None = Field(default=None, alias="CreatedBy")
+    create_date: datetime | None = Field(default=None, alias="CreateDate")
+    changed_by: str | None = Field(default=None, alias="ChangedBy")
+    change_date: datetime | None = Field(default=None, alias="ChangeDate")
+    attachment_uploads: list[AttachmentUpload] = Field(default_factory=list, alias="AttachmentUploads")
 
 
 class IssueResolutionStatus(BaseAtonixModel):

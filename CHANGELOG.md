@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `Issues.create_discussion_entry()` (sync and async) adds a discussion entry to an issue and
+  returns the new `IssueDiscussionEntry`, including an `AttachmentUpload` link for each file
+  named in `attachment_files`. (#23)
+- The package now ships a `py.typed` marker (PEP 561), so `mypy` and `pyright` pick up its type
+  hints. (#26)
+- `allow_insecure` client option to opt in to a plain `http://` custom environment URL. (#20)
+
+### Fixed
+- `Issues.delete_keywords()` now sends the request body as an array of `IssueKeyword` objects
+  (`[{"KeywordDesc": ...}]`), as the API spec defines, instead of bare strings. It also accepts
+  `IssueKeyword` objects, and an empty list no longer sends a request. (#27)
+
 ### Changed
+- **Breaking:** custom environment URLs must use `https://`. `http://` URLs raise `ValueError`
+  unless `allow_insecure=True` is passed, and malformed URLs (no scheme or host) are rejected. (#20)
 - The `cryptography` requirement no longer has an upper bound (now `cryptography>=48.0.1`), so
   installing `atonix` no longer blocks newer `cryptography` releases in your environment.
 - The docs site moved from pdoc to Material for MkDocs. It has a quick start, an authentication

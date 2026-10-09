@@ -14,6 +14,8 @@ from atonix.object_models.issues import (
     BareIssue,
     Issue,
     IssueCreate,
+    IssueDiscussionEntry,
+    IssueDiscussionEntryCreate,
     IssueDiscussionEntryDetails,
     IssueKeyword,
     IssuePatch,
@@ -21,6 +23,11 @@ from atonix.object_models.issues import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _keywords_body(keywords: list[str | IssueKeyword]) -> list[dict[str, str]]:
+    """Build the DELETE /keywords body: an array of IssueKeyword objects, per the spec."""
+    return [{"KeywordDesc": kw.keyword_desc if isinstance(kw, IssueKeyword) else kw} for kw in keywords]
 
 
 class Issues(BaseResource):
@@ -146,16 +153,45 @@ class Issues(BaseResource):
             raise APIError(f"No result returned when adding keyword to issue {issue_id}")
         return response.results[0]
 
-    def delete_keywords(self, issue_id: str, keywords: list[str]) -> None:
+    def delete_keywords(self, issue_id: str, keywords: list[str | IssueKeyword]) -> None:
         """
         Delete keywords from an issue.
 
+        The API takes the keywords as a JSON array in the DELETE request body;
+        it has no per-keyword or query-string variant.
+
         Args:
             issue_id: The unique identifier (GUID) of the issue.
-            keywords: A list of keyword descriptions to remove.
+            keywords: Keyword descriptions, or IssueKeyword objects (e.g. from
+                ``get_keywords``), to remove. An empty list sends no request.
         """
-        logger.debug("Deleting keywords from issue %s: %s", issue_id, keywords)
-        self._client.delete(f"/v1/issues/{issue_id}/keywords", json=keywords)
+        if not keywords:
+            return
+        body = _keywords_body(keywords)
+        logger.debug("Deleting keywords from issue %s: %s", issue_id, body)
+        self._client.delete(f"/v1/issues/{issue_id}/keywords", json=body)
+
+    def create_discussion_entry(self, issue_id: str, entry: IssueDiscussionEntryCreate) -> IssueDiscussionEntry:
+        """
+        Add a discussion entry to an issue.
+
+        Args:
+            issue_id: The unique identifier (GUID) of the issue.
+            entry: An IssueDiscussionEntryCreate object with the entry details.
+
+        Returns:
+            The created IssueDiscussionEntry. If ``entry.attachment_files`` was
+            set, its ``attachment_uploads`` holds a temporary upload link per file.
+        """
+        logger.debug("Creating discussion entry on issue %s: %s", issue_id, entry.title)
+        response_data = self._client.post(
+            f"/v1/issues/{issue_id}/discussionentries",
+            json=entry.model_dump(by_alias=True, exclude_none=True),
+        )
+        response = APIResponse[IssueDiscussionEntry](**response_data)
+        if not response.results:
+            raise APIError(f"No result returned when creating discussion entry on issue {issue_id}")
+        return response.results[0]
 
     def get_discussion_entries(
         self, issue_id: str, skip: int = 0, take: int = 50
@@ -315,16 +351,45 @@ class AsyncIssues(AsyncBaseResource):
             raise APIError(f"No result returned when adding keyword to issue {issue_id}")
         return response.results[0]
 
-    async def delete_keywords(self, issue_id: str, keywords: list[str]) -> None:
+    async def delete_keywords(self, issue_id: str, keywords: list[str | IssueKeyword]) -> None:
         """
         Delete keywords from an issue.
 
+        The API takes the keywords as a JSON array in the DELETE request body;
+        it has no per-keyword or query-string variant.
+
         Args:
             issue_id: The unique identifier (GUID) of the issue.
-            keywords: A list of keyword descriptions to remove.
+            keywords: Keyword descriptions, or IssueKeyword objects (e.g. from
+                ``get_keywords``), to remove. An empty list sends no request.
         """
-        logger.debug("Deleting keywords from issue %s: %s", issue_id, keywords)
-        await self._client.delete(f"/v1/issues/{issue_id}/keywords", json=keywords)
+        if not keywords:
+            return
+        body = _keywords_body(keywords)
+        logger.debug("Deleting keywords from issue %s: %s", issue_id, body)
+        await self._client.delete(f"/v1/issues/{issue_id}/keywords", json=body)
+
+    async def create_discussion_entry(self, issue_id: str, entry: IssueDiscussionEntryCreate) -> IssueDiscussionEntry:
+        """
+        Add a discussion entry to an issue.
+
+        Args:
+            issue_id: The unique identifier (GUID) of the issue.
+            entry: An IssueDiscussionEntryCreate object with the entry details.
+
+        Returns:
+            The created IssueDiscussionEntry. If ``entry.attachment_files`` was
+            set, its ``attachment_uploads`` holds a temporary upload link per file.
+        """
+        logger.debug("Creating discussion entry on issue %s: %s", issue_id, entry.title)
+        response_data = await self._client.post(
+            f"/v1/issues/{issue_id}/discussionentries",
+            json=entry.model_dump(by_alias=True, exclude_none=True),
+        )
+        response = APIResponse[IssueDiscussionEntry](**response_data)
+        if not response.results:
+            raise APIError(f"No result returned when creating discussion entry on issue {issue_id}")
+        return response.results[0]
 
     def get_discussion_entries(
         self, issue_id: str, skip: int = 0, take: int = 50

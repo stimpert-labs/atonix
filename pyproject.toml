@@ -6,6 +6,10 @@ build-backend = "setuptools.build_meta"
 # Explicit so build output like site/ (mkdocs) is never picked up as a package.
 include = ["atonix*"]
 
+[tool.setuptools.package-data]
+# PEP 561: ship type information to downstream mypy/pyright users.
+atonix = ["py.typed"]
+
 [project]
 name = "atonix"
 version = "0.6.0"

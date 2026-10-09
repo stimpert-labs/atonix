@@ -2,6 +2,8 @@
 # Copyright (c) 2023-2026 Kolton Stimpert
 """Tests for the Issues resource."""
 
+import json
+
 import pytest
 import respx
 from httpx import Response
@@ -12,6 +14,8 @@ from atonix.object_models.issues import (
     BareIssue,
     Issue,
     IssueCreate,
+    IssueDiscussionEntry,
+    IssueDiscussionEntryCreate,
     IssueDiscussionEntryDetails,
     IssueKeyword,
     IssuePatch,
@@ -123,6 +127,26 @@ class TestKeywords:
 
         assert len(respx.calls) == 1
         assert route.calls.last.request.method == "DELETE"
+        # Spec: body is an array of IssueKeyword objects, not bare strings.
+        assert json.loads(route.calls.last.request.content) == [{"KeywordDesc": "K1"}, {"KeywordDesc": "K2"}]
+
+    @respx.mock
+    def test_delete_keywords_accepts_keyword_objects(self, mock_client):
+        """delete_keywords should accept IssueKeyword objects and send only KeywordDesc."""
+        issue_id = "11111111-1111-1111-1111-111111111111"
+        route = respx.delete(f"{BASE_URL}/v1/issues/{issue_id}/keywords").mock(return_value=Response(204))
+
+        keyword = IssueKeyword(KeywordDesc="K1", CreatedBy="user@example.com")
+        Issues(mock_client).delete_keywords(issue_id, [keyword, "K2"])
+
+        assert json.loads(route.calls.last.request.content) == [{"KeywordDesc": "K1"}, {"KeywordDesc": "K2"}]
+
+    @respx.mock
+    def test_delete_keywords_empty_list_sends_nothing(self, mock_client):
+        """delete_keywords with no keywords should not call the API."""
+        Issues(mock_client).delete_keywords("11111111-1111-1111-1111-111111111111", [])
+
+        assert len(respx.calls) == 0
 
     @respx.mock
     def test_add_keyword_no_results_raises(self, mock_client):
@@ -280,6 +304,52 @@ class TestDiscussionEntries:
 
         assert len(result) == 3
         assert all(isinstance(e, IssueDiscussionEntryDetails) for e in result)
+
+    @respx.mock
+    def test_create_discussion_entry(self, mock_client):
+        """create_discussion_entry should POST the entry and return upload links."""
+        issue_id = "11111111-1111-1111-1111-111111111111"
+        created = {
+            "Title": "Inspection",
+            "Contents": "Bearing replaced.",
+            "CreatedBy": "user@example.com",
+            "CreateDate": "2026-01-01T00:00:00Z",
+            "AttachmentUploads": [
+                {
+                    "Filename": "photo.jpg",
+                    "TemporaryLink": "https%3A%2F%2Ffiles.example.com%2Fphoto.jpg",
+                    "LinkExpirationDate": "2026-01-01T01:00:00Z",
+                }
+            ],
+        }
+        route = respx.post(f"{BASE_URL}/v1/issues/{issue_id}/discussionentries").mock(
+            return_value=Response(201, json=make_api_response([created], count=1, type_name="IssueDiscussionEntry"))
+        )
+
+        entry = IssueDiscussionEntryCreate(
+            title="Inspection", contents="Bearing replaced.", attachment_files=["photo.jpg"]
+        )
+        result = Issues(mock_client).create_discussion_entry(issue_id, entry)
+
+        assert json.loads(route.calls.last.request.content) == {
+            "Title": "Inspection",
+            "Contents": "Bearing replaced.",
+            "AttachmentFiles": ["photo.jpg"],
+        }
+        assert isinstance(result, IssueDiscussionEntry)
+        assert result.title == "Inspection"
+        assert result.attachment_uploads[0].filename == "photo.jpg"
+
+    @respx.mock
+    def test_create_discussion_entry_no_results_raises(self, mock_client):
+        """create_discussion_entry should raise APIError when API returns no results."""
+        issue_id = "11111111-1111-1111-1111-111111111111"
+        respx.post(f"{BASE_URL}/v1/issues/{issue_id}/discussionentries").mock(
+            return_value=Response(200, json=make_api_response([], count=0))
+        )
+
+        with pytest.raises(APIError, match="creating discussion entry"):
+            Issues(mock_client).create_discussion_entry(issue_id, IssueDiscussionEntryCreate(title="T", contents="C"))
 
 
 class TestResolutionStatuses:
