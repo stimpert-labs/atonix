@@ -94,6 +94,29 @@ def _clock_skew_hint(message: str, response: httpx.Response | None) -> str:
     return ""
 
 
+def _encode_json_body(body: Any) -> bytes:
+    """Serialize a JSON request body once, to the exact bytes that are signed and sent.
+
+    Compact separators satisfy the auth spec's "all meaningless spaces and newline
+    characters must be removed" rule. The output (UTF-8, non-ASCII kept as-is) is
+    byte-identical to what httpx >= 0.28 produces for ``json=``.
+    """
+    return json.dumps(body, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
+def _encode_challenge(representation: str) -> bytes:
+    """Encode the challenge string the way the server does, with .NET ``Encoding.ASCII``.
+
+    The Atonix auth spec signs ``Encoding.ASCII.GetBytes(challengeString)``, which does
+    not raise on non-ASCII text: it replaces every UTF-16 code unit it cannot encode with
+    ``?``. A character outside the Basic Multilingual Plane (a surrogate pair) therefore
+    becomes ``??``.
+    """
+    if representation.isascii():
+        return representation.encode("ascii")
+    return "".join(ch if ch.isascii() else ("??" if ord(ch) > 0xFFFF else "?") for ch in representation).encode("ascii")
+
+
 class Auth:
     """Internal class to handle Atonix API Authentication signature generation.
 
@@ -123,7 +146,7 @@ class Auth:
         resource: str,
         method: str,
         params: dict | None = None,
-        body: Any | None = None,
+        body: bytes | None = None,
     ) -> str:
         """
         Creates the canonical string representation of the request for signing.
@@ -133,7 +156,7 @@ class Auth:
             resource: API path.
             method: HTTP method.
             params: Query parameters.
-            body: JSON request body.
+            body: Serialized JSON request body, exactly as sent on the wire.
 
         Returns:
             The canonical representation string.
@@ -156,15 +179,14 @@ class Auth:
                 parts.append("\n".join(query_parts))
 
         if body is not None:
-            body_json = json.dumps(body, separators=(",", ":"))
-            parts.append(body_json)
+            parts.append(body.decode("utf-8"))
 
         return "\n".join(parts)
 
     def _sign(self, representation: str) -> str:
         """Signs the request representation using the private key."""
         signature = self.private_key.sign(
-            representation.encode("ascii"),
+            _encode_challenge(representation),
             padding.PKCS1v15(),
             hashes.SHA256(),
         )
@@ -175,7 +197,7 @@ class Auth:
         resource: str,
         method: str,
         params: dict | None = None,
-        body: Any | None = None,
+        body: bytes | None = None,
     ) -> dict[str, str]:
         """
         Generates the x-atx-auth and x-api-key headers.
@@ -191,7 +213,7 @@ class Auth:
             resource: API path.
             method: HTTP method.
             params: Query parameters.
-            body: JSON request body.
+            body: Serialized JSON request body, exactly as sent on the wire.
 
         Returns:
             Dictionary containing auth headers.
@@ -302,6 +324,9 @@ class _BaseAtonixClient:
             self._base_url = str(environment).rstrip("/")
         _validate_base_url(self._base_url, allow_insecure)
 
+        if max_retries < 0:
+            raise ValueError("max_retries must be >= 0")
+
         self._max_retries = max_retries
         self._auth = Auth(api_key, private_key)
 
@@ -312,17 +337,30 @@ class _BaseAtonixClient:
         params: dict | None = None,
         json_body: Any | None = None,
         headers: dict | None = None,
-    ) -> tuple[str, dict, dict]:
-        """Internal helper to prepare request components."""
+    ) -> tuple[str, dict, dict, bytes | None]:
+        """Internal helper to prepare request components.
+
+        Returns the URL, cleaned query params, headers, and the serialized JSON
+        body (``None`` when there is no body). The body bytes are the same bytes
+        that were signed and must be sent as-is.
+        """
         url = f"{self._base_url}{endpoint}"
         clean_params = {k: v for k, v in (params or {}).items() if v is not None}
-        auth_headers = self._auth.get_auth_headers(endpoint, method, clean_params, json_body)
+        content = _encode_json_body(json_body) if json_body is not None else None
+        auth_headers = self._auth.get_auth_headers(endpoint, method, clean_params, content)
 
         request_headers = auth_headers.copy()
+        if content is not None:
+            request_headers["Content-Type"] = "application/json"
         if headers:
             request_headers.update(headers)
 
-        return url, clean_params, request_headers
+        return url, clean_params, request_headers, content
+
+    @property
+    def _attempts(self) -> int:
+        """Total attempts per request. Always at least one, even when ``max_retries`` is 0."""
+        return max(1, self._max_retries)
 
     def _handle_response(self, response: httpx.Response, cause: BaseException | None = None) -> Any:
         """Maps HTTP status codes to Atonix exceptions."""
@@ -414,7 +452,8 @@ class AtonixClient(_BaseAtonixClient):
             private_key_password: Password for encrypted private key (defaults to ATONIX_PRIVATE_KEY_PASSWORD env var).
             environment: API target environment or custom URL.
             timeout: Request timeout in seconds.
-            max_retries: Number of times to retry transient errors (429, 5xx).
+            max_retries: Maximum attempts per request for transient errors (429, 5xx, network).
+                ``0`` or ``1`` disables retries; every request is always attempted at least once.
             allow_insecure: Permit a plain ``http://`` custom environment URL. Only
                 intended for local testing; credentials are sent unencrypted.
         """
@@ -452,15 +491,18 @@ class AtonixClient(_BaseAtonixClient):
         Raises:
             AtonixError: On API or network errors.
         """
-        url, params, headers = self._prepare_request(
+        url, params, headers, content = self._prepare_request(
             method,
             endpoint,
             params=kwargs.pop("params", None),
-            json_body=kwargs.get("json"),
+            json_body=kwargs.pop("json", None),
             headers=kwargs.pop("headers", None),
         )
+        if content is not None:
+            kwargs["content"] = content
 
-        for attempt in range(1, self._max_retries + 1):
+        attempts = self._attempts
+        for attempt in range(1, attempts + 1):
             try:
                 response = self._client.request(
                     method=method,
@@ -472,20 +514,20 @@ class AtonixClient(_BaseAtonixClient):
                 response.raise_for_status()
                 return self._handle_response(response)
             except httpx.HTTPStatusError as e:
-                if e.response.status_code in [429, 500, 502, 503, 504] and attempt < self._max_retries:
+                if e.response.status_code in [429, 500, 502, 503, 504] and attempt < attempts:
                     wait_time = 2 ** (attempt - 1)
                     logger.warning(
                         "Request failed with %d. Retrying in %ds... (Attempt %d/%d)",
                         e.response.status_code,
                         wait_time,
                         attempt,
-                        self._max_retries,
+                        attempts,
                     )
                     time.sleep(wait_time)
                     continue
                 return self._handle_response(e.response, cause=e)
             except httpx.RequestError as e:
-                if attempt < self._max_retries:
+                if attempt < attempts:
                     logger.warning("Request error: %s. Retrying...", str(e))
                     time.sleep(1)
                     continue
@@ -543,7 +585,8 @@ class AsyncAtonixClient(_BaseAtonixClient):
             private_key_password: Password for encrypted private key (defaults to ATONIX_PRIVATE_KEY_PASSWORD env var).
             environment: API target environment or custom URL.
             timeout: Request timeout in seconds.
-            max_retries: Number of times to retry transient errors (429, 5xx).
+            max_retries: Maximum attempts per request for transient errors (429, 5xx, network).
+                ``0`` or ``1`` disables retries; every request is always attempted at least once.
             allow_insecure: Permit a plain ``http://`` custom environment URL. Only
                 intended for local testing; credentials are sent unencrypted.
         """
@@ -581,15 +624,18 @@ class AsyncAtonixClient(_BaseAtonixClient):
         Raises:
             AtonixError: On API or network errors.
         """
-        url, params, headers = self._prepare_request(
+        url, params, headers, content = self._prepare_request(
             method,
             endpoint,
             params=kwargs.pop("params", None),
-            json_body=kwargs.get("json"),
+            json_body=kwargs.pop("json", None),
             headers=kwargs.pop("headers", None),
         )
+        if content is not None:
+            kwargs["content"] = content
 
-        for attempt in range(1, self._max_retries + 1):
+        attempts = self._attempts
+        for attempt in range(1, attempts + 1):
             try:
                 response = await self._client.request(
                     method=method,
@@ -601,20 +647,20 @@ class AsyncAtonixClient(_BaseAtonixClient):
                 response.raise_for_status()
                 return self._handle_response(response)
             except httpx.HTTPStatusError as e:
-                if e.response.status_code in [429, 500, 502, 503, 504] and attempt < self._max_retries:
+                if e.response.status_code in [429, 500, 502, 503, 504] and attempt < attempts:
                     wait_time = 2 ** (attempt - 1)
                     logger.warning(
                         "Request failed with %d. Retrying in %ds... (Attempt %d/%d)",
                         e.response.status_code,
                         wait_time,
                         attempt,
-                        self._max_retries,
+                        attempts,
                     )
                     await asyncio.sleep(wait_time)
                     continue
                 return self._handle_response(e.response, cause=e)
             except httpx.RequestError as e:
-                if attempt < self._max_retries:
+                if attempt < attempts:
                     logger.warning("Request error: %s. Retrying...", str(e))
                     await asyncio.sleep(1)
                     continue
