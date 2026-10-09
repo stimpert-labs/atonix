@@ -12,7 +12,7 @@ atonix = ["py.typed"]
 
 [project]
 name = "atonix"
-version = "0.6.0"
+version = "0.7.0"
 description = "Unofficial Python client for the Prometheus APM (formerly AtonixOI) API. Not affiliated with Prometheus Group."
 readme = "README.md"
 requires-python = ">=3.10"
