@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from httpx import Response
 
-from atonix.client import AtonixClient, Auth, _parse_private_key
+from atonix.client import AsyncAtonixClient, AtonixClient, Auth, _parse_private_key
 from atonix.exceptions import (
     APIError,
     AuthenticationError,
@@ -216,6 +216,34 @@ class TestAtonixClient:
             api_key="testkey", private_key=mock_private_key, environment="https://custom.example.com/"
         )
         assert client._base_url == "https://custom.example.com"
+
+    @pytest.mark.parametrize("url", ["http://custom.example.com", "HTTP://custom.example.com"])
+    def test_init_rejects_http_url(self, mock_private_key, url):
+        """Client should refuse a plaintext http:// environment by default."""
+        with pytest.raises(ValueError, match="allow_insecure"):
+            AtonixClient(api_key="testkey", private_key=mock_private_key, environment=url)
+
+    @pytest.mark.parametrize("url", ["custom.example.com", "ftp://custom.example.com", "https://", ""])
+    def test_init_rejects_malformed_url(self, mock_private_key, url):
+        """Client should reject URLs without an https scheme and host."""
+        with pytest.raises(ValueError, match="Invalid environment URL"):
+            AtonixClient(api_key="testkey", private_key=mock_private_key, environment=url, allow_insecure=True)
+
+    def test_init_allows_http_with_opt_in(self, mock_private_key, caplog):
+        """allow_insecure=True should permit http:// and log a warning."""
+        client = AtonixClient(
+            api_key="testkey",
+            private_key=mock_private_key,
+            environment="http://localhost:8080/",
+            allow_insecure=True,
+        )
+        assert client._base_url == "http://localhost:8080"
+        assert "insecure" in caplog.text
+
+    def test_async_init_rejects_http_url(self, mock_private_key):
+        """AsyncAtonixClient should apply the same HTTPS check."""
+        with pytest.raises(ValueError, match="allow_insecure"):
+            AsyncAtonixClient(api_key="testkey", private_key=mock_private_key, environment="http://custom.example.com")
 
     def test_init_raises_if_non_rsa_key(self, mock_private_key):
         """_parse_private_key should raise ValueError for non-RSA keys."""

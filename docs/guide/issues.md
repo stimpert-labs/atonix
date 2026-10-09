@@ -99,6 +99,8 @@ aren't touched.
 === "Sync"
 
     ```python
+    from atonix.object_models.issues import IssueDiscussionEntryCreate
+
     client.issues.add_keyword("issue-guid", "vibration")
 
     for kw in client.issues.get_keywords("issue-guid"):
@@ -106,11 +108,21 @@ aren't touched.
 
     for entry in client.issues.get_discussion_entries("issue-guid"):
         print(entry.title)
+
+    # Accepts keyword strings or IssueKeyword objects from get_keywords().
+    client.issues.delete_keywords("issue-guid", ["vibration"])
+
+    entry = client.issues.create_discussion_entry(
+        "issue-guid",
+        IssueDiscussionEntryCreate(title="Inspection", contents="Bearing replaced."),
+    )
     ```
 
 === "Async"
 
     ```python
+    from atonix.object_models.issues import IssueDiscussionEntryCreate
+
     await client.issues.add_keyword("issue-guid", "vibration")
 
     async for kw in client.issues.get_keywords("issue-guid"):
@@ -118,4 +130,16 @@ aren't touched.
 
     async for entry in client.issues.get_discussion_entries("issue-guid"):
         print(entry.title)
+
+    await client.issues.delete_keywords("issue-guid", ["vibration"])
+
+    entry = await client.issues.create_discussion_entry(
+        "issue-guid",
+        IssueDiscussionEntryCreate(title="Inspection", contents="Bearing replaced."),
+    )
     ```
+
+To attach files, list their names in `attachment_files`. The created entry's
+`attachment_uploads` then holds a temporary upload link (`temporary_link`, URL-encoded) per
+file. The client doesn't upload the files for you. Existing attachments come back on
+`get_discussion_entries()` as `attachments`, each with a temporary download link.

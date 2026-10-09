@@ -12,6 +12,7 @@ from datetime import timezone
 from email.utils import parsedate_to_datetime
 from enum import Enum
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from cryptography.hazmat.primitives import hashes, serialization
@@ -263,6 +264,26 @@ def _load_private_key(path: str, password: str | None = None) -> rsa.RSAPrivateK
         return _parse_private_key(key_file.read(), password)
 
 
+def _validate_base_url(base_url: str, allow_insecure: bool) -> None:
+    """Reject base URLs that would send signed requests over plaintext HTTP.
+
+    Raises:
+        ValueError: If the URL has no host, or uses a scheme other than ``https``
+            (``http`` is accepted only when ``allow_insecure`` is True).
+    """
+    parts = urlsplit(base_url)
+    scheme = parts.scheme.lower()
+    if scheme not in ("https", "http") or not parts.netloc:
+        raise ValueError(f"Invalid environment URL {base_url!r}: expected an absolute https:// URL.")
+    if scheme == "http":
+        if not allow_insecure:
+            raise ValueError(
+                f"Refusing insecure environment URL {base_url!r}: credentials and signed requests "
+                "would be sent in plaintext. Use https://, or pass allow_insecure=True to override."
+            )
+        logger.warning("Using insecure environment URL %s; requests will not be encrypted.", base_url)
+
+
 class _BaseAtonixClient:
     """Shared credential resolution and request handling for Atonix clients."""
 
@@ -274,6 +295,7 @@ class _BaseAtonixClient:
         environment: AtonixEnvironment | str = AtonixEnvironment.US,
         timeout: float = 30.0,
         max_retries: int = 3,
+        allow_insecure: bool = False,
     ):
         api_key = api_key or os.environ.get("ATONIX_API_KEY")
         if not api_key:
@@ -300,6 +322,7 @@ class _BaseAtonixClient:
             self._base_url = environment.value.rstrip("/")
         else:
             self._base_url = str(environment).rstrip("/")
+        _validate_base_url(self._base_url, allow_insecure)
 
         if max_retries < 0:
             raise ValueError("max_retries must be >= 0")
@@ -418,6 +441,7 @@ class AtonixClient(_BaseAtonixClient):
         environment: AtonixEnvironment | str = AtonixEnvironment.US,
         timeout: float = 30.0,
         max_retries: int = 3,
+        allow_insecure: bool = False,
     ):
         """
         Initialize the Atonix Client.
@@ -430,8 +454,10 @@ class AtonixClient(_BaseAtonixClient):
             timeout: Request timeout in seconds.
             max_retries: Maximum attempts per request for transient errors (429, 5xx, network).
                 ``0`` or ``1`` disables retries; every request is always attempted at least once.
+            allow_insecure: Permit a plain ``http://`` custom environment URL. Only
+                intended for local testing; credentials are sent unencrypted.
         """
-        super().__init__(api_key, private_key, private_key_password, environment, timeout, max_retries)
+        super().__init__(api_key, private_key, private_key_password, environment, timeout, max_retries, allow_insecure)
         transport = httpx.HTTPTransport(retries=0)
         self._client = httpx.Client(timeout=timeout, transport=transport)
 
@@ -548,6 +574,7 @@ class AsyncAtonixClient(_BaseAtonixClient):
         environment: AtonixEnvironment | str = AtonixEnvironment.US,
         timeout: float = 30.0,
         max_retries: int = 3,
+        allow_insecure: bool = False,
     ):
         """
         Initialize the async Atonix Client.
@@ -560,8 +587,10 @@ class AsyncAtonixClient(_BaseAtonixClient):
             timeout: Request timeout in seconds.
             max_retries: Maximum attempts per request for transient errors (429, 5xx, network).
                 ``0`` or ``1`` disables retries; every request is always attempted at least once.
+            allow_insecure: Permit a plain ``http://`` custom environment URL. Only
+                intended for local testing; credentials are sent unencrypted.
         """
-        super().__init__(api_key, private_key, private_key_password, environment, timeout, max_retries)
+        super().__init__(api_key, private_key, private_key_password, environment, timeout, max_retries, allow_insecure)
         transport = httpx.AsyncHTTPTransport(retries=0)
         self._client = httpx.AsyncClient(timeout=timeout, transport=transport)
 

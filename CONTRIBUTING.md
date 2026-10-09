@@ -409,8 +409,14 @@ Replace `minor` with `patch` or `major` as needed.
    export ATONIX_API_KEY=...               # your API key
    export ATONIX_PRIVATE_KEY_PATH=...      # path to your PEM private key
    export ATONIX_ENVIRONMENT=US            # optional, defaults to US
+   export ATONIX_TEST_ISSUE_ID=...         # optional: throwaway issue for write tests
+   export ATONIX_LIVE_PERMANENT_WRITES=1   # optional: also run writes the API can't undo
    uv run pytest tests/integration -m integration
    ```
+   Without `ATONIX_TEST_ISSUE_ID` only the read-only tests run. With it, the
+   keyword test adds and then deletes a keyword on that issue. The discussion-entry
+   test additionally needs `ATONIX_LIVE_PERMANENT_WRITES=1`, because the API has no
+   way to delete an entry, so each run leaves one on the test issue.
 
 3. **Create the release branch and bump the version.** `bump-my-version` updates
    `pyproject.toml`, `uv.lock`, and `CHANGELOG.md` (renames `[Unreleased]` to the

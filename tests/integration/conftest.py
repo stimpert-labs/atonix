@@ -50,3 +50,12 @@ def atonix_environment():
 def live_client(api_key, private_key, atonix_environment):
     """Create a real AtonixClient for integration testing."""
     return AtonixClient(api_key=api_key, private_key=private_key, environment=atonix_environment)
+
+
+@pytest.fixture(scope="session")
+def test_issue_id():
+    """Issue that write tests may modify; write tests skip unless this is set."""
+    issue_id = os.environ.get("ATONIX_TEST_ISSUE_ID")
+    if not issue_id:
+        pytest.skip("ATONIX_TEST_ISSUE_ID not set; skipping tests that write to the tenant")
+    return issue_id
