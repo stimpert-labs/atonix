@@ -130,6 +130,12 @@ When tasked with adding a new feature or updating an existing one:
 
 ---
 
+## Releasing
+Releases are cut by opening a release PR; merging it publishes to PyPI. See **CONTRIBUTING.md → Release Process**
+and the `release` skill (`.claude/skills/release/SKILL.md`). Agents open the PR but never merge it.
+
+---
+
 ## Licensing & Hygiene (for Agent)
 - All code is `LGPL-3.0-or-later`. New `.py` files must begin with the SPDX header:
   `# SPDX-License-Identifier: LGPL-3.0-or-later` and `# Copyright (c) 2023-2026 Kolton Stimpert`.
