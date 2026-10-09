@@ -336,39 +336,141 @@ smoke-test step.
 
 ## Release Process
 
-Releases are tagged `vX.Y.Z` on `main`. `main` only changes through squash-merged
-PRs and every commit needs a DCO sign-off, so the version bump goes through a
-release PR and the tag is created after it merges. We use
-[`bump-my-version`](https://github.com/callowayproject/bump-my-version)
-(configured in `.bumpversion.toml`) to update `pyproject.toml`, `CHANGELOG.md`,
-and `uv.lock`; it does not commit or tag on its own.
+### How changes reach users
 
-1. Ensure `CHANGELOG.md` has entries under `## [Unreleased]` describing the
-   release.
-2. Branch from an up-to-date `main`:
-   ```bash
-   git checkout main && git pull
-   git checkout -b release/vX.Y.Z
-   ```
-3. Bump the version and commit with a sign-off:
-   ```bash
-   uv run bump-my-version bump patch    # or: minor / major
-   git commit -s -am "Release vX.Y.Z"
-   ```
-4. Push, open a PR, and squash-merge it once CI is green.
-5. Tag the merged commit on `main`:
-   ```bash
-   git checkout main && git pull
-   git tag -a vX.Y.Z -m "Release vX.Y.Z"
-   git push origin vX.Y.Z
-   ```
-6. The tag push triggers two workflows:
-   - `release.yml` builds, runs `twine check`, and publishes to PyPI via a
-     Trusted Publisher (OIDC) through the `pypi` environment. Approve the
-     deployment if the environment is gated.
-   - `docs.yml` deploys the pdoc site to GitHub Pages.
+`main` is the only long-lived branch and is always releasable. Every change lands
+through a squash-merged PR, and anything user-visible adds an entry under
+`## [Unreleased]` in `CHANGELOG.md`. That section, plus its compare link at the
+bottom of the file, is the list of what's merged but not yet released.
 
-Publishing is done by CI only; do not run `uv publish` manually.
+Nothing reaches PyPI until a **release PR** changes the version in
+`pyproject.toml`. When that PR merges, `.github/workflows/release.yml`:
+
+1. sees a version that has no `vX.Y.Z` tag yet,
+2. builds the sdist and wheel and runs `twine check`,
+3. publishes to PyPI (Trusted Publisher, `pypi` environment),
+4. creates the `vX.Y.Z` tag and a GitHub Release using that version's changelog
+   section as the notes,
+5. deploys the API docs (`docs.yml`).
+
+The tag is created only after PyPI accepts the upload, so a tag always means a
+published release. Other changes to `pyproject.toml`, such as Dependabot updates,
+leave the version alone, and the workflow skips them. Don't push `v*` tags or run
+`uv publish` by hand.
+
+There are no `develop`, release, or hotfix branches. Fixes go to `main` and ship
+as a patch release. If a 1.x line ever needs backports, create a maintenance
+branch from its tag at that point.
+
+### Versioning
+
+We follow [Semantic Versioning](https://semver.org/). While we're on `0.x`:
+
+- **Patch** (`0.6.0` → `0.6.1`): bug fixes and security fixes only.
+- **Minor** (`0.6.0` → `0.7.0`): new features, *and* any breaking change.
+  Breaking changes must be called out in the changelog. Users should pin
+  `atonix~=0.6` to get fixes without breaking changes.
+- **Major** (`1.0.0`): once the public API has gone through a few minor
+  releases without breaking changes.
+
+### When to release
+
+Release when there's something user-visible in `[Unreleased]`, not on a schedule:
+
+- **Bug and security fixes:** release a patch as soon as the fix merges.
+- **Features:** release when the feature is done, or batch related ones. Don't
+  leave user-visible entries unreleased for more than about two weeks.
+- **Dependency, CI, docs, and test-only changes:** these don't need a release on
+  their own.
+
+### Cutting a release
+
+Replace `minor` with `patch` or `major` as needed.
+
+1. **Update `main` and check what's unreleased.** Read `## [Unreleased]` in
+   `CHANGELOG.md` and edit it on `main` first (through a normal PR) if anything
+   is missing or unclear. It becomes the release notes as written.
+   ```bash
+   git switch main
+   git pull
+   uv run bump-my-version show-bump        # shows the patch / minor / major options
+   ```
+
+2. **For releases that change API behavior, run the integration tests** against
+   your tenant. CI can't run these, and they're the main check that the release
+   works against a real API.
+   ```bash
+   export ATONIX_API_KEY=...               # your API key
+   export ATONIX_PRIVATE_KEY_PATH=...      # path to your PEM private key
+   export ATONIX_ENVIRONMENT=US            # optional, defaults to US
+   uv run pytest tests/integration -m integration
+   ```
+
+3. **Create the release branch and bump the version.** `bump-my-version` updates
+   `pyproject.toml`, `uv.lock`, and `CHANGELOG.md` (renames `[Unreleased]` to the
+   version and date, and updates the compare links). It needs a clean working tree.
+   ```bash
+   VERSION="$(uv run bump-my-version show new_version --increment minor)"
+   git switch -c "release/v$VERSION"
+   uv run bump-my-version bump minor
+   git diff                                # check the version and changelog edits
+   git commit -s -am "Release v$VERSION"
+   git push -u origin "release/v$VERSION"
+   ```
+
+4. **Open the PR** titled `Release vX.Y.Z` (GitHub prints a link after the push,
+   or use `gh pr create --fill`). Wait for CI, then squash-merge it.
+
+5. **Watch it publish.** Open **Actions → Release**. If the `pypi` environment
+   requires approval, approve the deployment. When the run finishes, check:
+   - <https://pypi.org/project/atonix/> shows the new version,
+   - the GitHub Release `vX.Y.Z` exists with the changelog notes,
+   - <https://atonix.stimpert-labs.dev> shows the new docs.
+
+6. **Clean up the release branch:**
+   ```bash
+   git switch main
+   git pull
+   git branch -D "release/v$VERSION"
+   git push origin --delete "release/v$VERSION"   # skip if GitHub already deleted it
+   ```
+
+### If something goes wrong
+
+- **A job failed for a transient reason** (network, PyPI outage): re-run the
+  failed jobs from the Actions page. Publishing skips files already on PyPI, so
+  re-running is safe.
+- **The build or publish failed because of a problem in the repo:** fix it in a
+  normal PR. Merging that PR won't release by itself unless it touches
+  `pyproject.toml`, so afterwards run **Actions → Release → Run workflow** on
+  `main`. It releases the current version if that version isn't tagged yet.
+- **A broken version reached PyPI:** PyPI files can't be replaced. Yank the
+  version on PyPI (Manage project → Releases → Options → Yank), fix the problem
+  on `main`, and release a new patch.
+- **Docs didn't deploy:** run **Actions → Docs → Run workflow** on `main`.
+
+### Repository settings the release depends on
+
+- The `pypi` and `github-pages` environments must allow deployments from the
+  `main` branch (Settings → Environments → Deployment branches and tags).
+- PyPI's Trusted Publisher for `atonix` must point at this repository, the
+  workflow file `release.yml`, and the environment `pypi`.
+- If you add a ruleset that restricts creating `v*` tags, make sure the release
+  workflow can still create them, or the "Tag and create GitHub Release" job fails
+  after publishing (re-run it once the ruleset is fixed).
+
+### Dependency bounds
+
+`atonix` is a library, so the dependency ranges in `pyproject.toml` are what
+users' installers have to satisfy:
+
+- Use a minimum version only (`httpx>=0.27.0`). Don't add upper caps; they cause
+  install conflicts for users and force a release every time a dependency ships
+  a new version.
+- Raise a minimum only when `atonix` needs the newer version (a feature it uses,
+  or a security fix in that dependency), and note it in the changelog.
+- Dependabot uses `versioning-strategy: widen`, so it updates `uv.lock` (what CI
+  tests against) without raising those minimums.
 
 ---
 

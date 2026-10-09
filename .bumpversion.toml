@@ -6,8 +6,9 @@
 #   uv run bump-my-version bump minor           # 0.5.0 -> 0.6.0
 #   uv run bump-my-version bump major --dry-run # preview
 #
-# This will edit pyproject.toml + CHANGELOG.md + uv.lock only. Commit (with `git -s`) on a release
-# branch, squash-merge the PR, then tag the merged commit on main. See CONTRIBUTING.md.
+# This edits pyproject.toml + CHANGELOG.md + uv.lock only; it does not commit or tag. Commit the
+# bump on a release branch and merge the PR. Merging publishes the release and creates the
+# v{new_version} tag (.github/workflows/release.yml). See "Release Process" in CONTRIBUTING.md.
 
 [tool.bumpversion]
 current_version = "0.6.0"
