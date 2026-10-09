@@ -103,3 +103,58 @@ class TestLiveModels:
         models = live_client.models.get_models(asset_id=asset_id)
 
         assert isinstance(models, list)
+
+
+class TestLiveRequestSigning:
+    """Probes that the server accepts the request signature (#12, #13).
+
+    These only assert that the server did not reject the signature (no
+    AuthenticationError). A 400/404 for an unknown parameter or archive still
+    proves the signature check passed.
+    """
+
+    def test_non_ascii_query_param_signature_accepted(self, live_client):
+        """A non-ASCII query value is signed as UTF-8 and accepted by the server."""
+        from atonix.exceptions import AtonixError, AuthenticationError
+
+        try:
+            live_client.get("/v1/assets", params={"skip": 0, "take": 1, "atonixProbe": "Kühler-温度"})
+        except AuthenticationError:
+            raise
+        except AtonixError:
+            pass
+
+    def test_json_body_signature_accepted(self, live_client):
+        """A POST body is signed and sent as the same bytes, and the server accepts it."""
+        from datetime import datetime, timedelta, timezone
+        from itertools import islice
+
+        from atonix.exceptions import AtonixError, AuthenticationError
+
+        servers = list(islice(live_client.process_data.get_servers(take=1), 1))
+        if not servers:
+            pytest.skip("No servers available to test with")
+        tags = list(islice(live_client.process_data.get_tags_list(servers[0].server_id, take=1), 1))
+        if not tags:
+            pytest.skip("No tags available to test with")
+
+        end = datetime.now(timezone.utc)
+        payload = {
+            "ServerId": servers[0].server_id,
+            "Start": (end - timedelta(hours=1)).isoformat(),
+            "End": end.isoformat(),
+            "Archive": "Ünïcødé-probe",
+            "TagIds": [tags[0].tag_id],
+        }
+        try:
+            live_client.post("/v1/processdata/query", json=payload)
+        except AuthenticationError:
+            raise
+        except AtonixError:
+            pass
+
+    def test_assets_with_null_dates_parse(self, live_client):
+        """Iterating top-level assets and their children must not fail on null dates (#21)."""
+        top_assets = list(live_client.assets.get_top())
+        for asset in top_assets[:5]:
+            list(live_client.assets.get_children(asset.id))

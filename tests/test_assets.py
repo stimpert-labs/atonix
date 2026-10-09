@@ -31,6 +31,23 @@ class TestAssets:
         assert all(isinstance(a, Asset) for a in result)
 
     @respx.mock
+    def test_get_top_tolerates_null_dates(self, mock_client):
+        """A null CreateDate/ChangeDate mid-page must not break iteration (#21)."""
+        assets_data = make_assets(3)
+        assets_data[1]["CreateDate"] = None
+        assets_data[1]["ChangeDate"] = None
+        respx.get(f"{BASE_URL}/v1/assets").mock(
+            return_value=Response(200, json=make_api_response(assets_data, count=3, type_name="Asset"))
+        )
+
+        result = list(Assets(mock_client).get_top())
+
+        assert len(result) == 3
+        assert result[1].create_date is None
+        assert result[1].change_date is None
+        assert result[0].create_date is not None
+
+    @respx.mock
     def test_get_top_pagination_exceeds_max_take(self, mock_client):
         """get_top should paginate when results exceed max take (50)."""
         # First page

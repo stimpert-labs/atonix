@@ -2,11 +2,14 @@
 # Copyright (c) 2023-2026 Kolton Stimpert
 """Tests for the AtonixClient and Auth classes."""
 
+import json
+from base64 import b64decode
+
 import httpx
 import pytest
 import respx
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from httpx import Response
 
 from atonix.client import AtonixClient, Auth, _parse_private_key
@@ -496,3 +499,155 @@ class TestClockSkewHint:
             mock_client.get("/v1/assets")
 
         assert "system clock" in str(exc_info.value).lower()
+
+
+def _verify_wire_signature(request: httpx.Request, private_key: rsa.RSAPrivateKey, api_key: str) -> None:
+    """Rebuild the canonical string from what is actually on the wire and verify the signature.
+
+    Mirrors what the server has to do: it only sees the wire request, so the signature must
+    verify against the bytes httpx sent, not against whatever the client serialized for signing.
+    """
+    _key, timestamp, signature = request.headers["x-atx-auth"].split(":")
+    params: dict = {}
+    for k, v in request.url.params.multi_items():
+        params.setdefault(k, []).append(v)
+    params = {k: v[0] if len(v) == 1 else v for k, v in params.items()}
+    representation = Auth(api_key, private_key)._represent_request(
+        int(timestamp),
+        request.url.path,
+        request.method,
+        params,
+        request.content or None,
+    )
+    private_key.public_key().verify(
+        b64decode(signature), representation.encode("utf-8"), padding.PKCS1v15(), hashes.SHA256()
+    )
+
+
+class TestRequestSigning:
+    """Signed bytes must match wire bytes and survive non-ASCII input (#12, #13)."""
+
+    API_KEY = "test-api-key-1234567890abcdef"
+
+    def test_sign_accepts_non_ascii_representation(self, mock_private_key):
+        """_sign must not raise UnicodeEncodeError on non-ASCII input (#12)."""
+        auth = Auth(self.API_KEY, mock_private_key)
+
+        headers = auth.get_auth_headers("/v1/assets", "GET", params={"name": "Kühler Ø-Pumpe 温度"})
+
+        assert headers["x-atx-auth"].count(":") == 2
+
+    def test_ascii_representation_unchanged(self, mock_private_key):
+        """For ASCII input the canonical string is identical to the pre-fix format."""
+        auth = Auth(self.API_KEY, mock_private_key)
+        body = {"ServerId": "s1", "TagIds": ["t1", "t2"], "Nested": {"b": 1, "a": None}}
+
+        rep = auth._represent_request(123, "/v1/ProcessData/Query", "POST", {"take": 50}, b'{"x":1}')
+
+        assert rep == 'testapikey1234567890abcdef\n123\n/v1/processdata/query\npost\ntake:50\n{"x":1}'
+        # The serialized body equals the compact json.dumps the signer used before the fix.
+        from atonix.client import _encode_json_body
+
+        assert _encode_json_body(body) == json.dumps(body, separators=(",", ":")).encode()
+
+    @respx.mock
+    def test_post_signature_verifies_against_wire_body(self, mock_client, mock_private_key):
+        """The server-side check (signature over the wire bytes) must pass for a JSON body (#13)."""
+        route = respx.post(f"{BASE_URL}/v1/issues").mock(return_value=Response(200, json=make_api_response([])))
+        body = {"Title": "Pump vibration", "Priority": 2, "Tags": ["b", "a"], "Meta": {"z": 1, "a": [1.5, None]}}
+
+        mock_client.post("/v1/issues", json=body)
+
+        request = route.calls.last.request
+        assert request.headers["Content-Type"] == "application/json"
+        assert json.loads(request.content) == body
+        _verify_wire_signature(request, mock_private_key, self.API_KEY)
+
+    @respx.mock
+    def test_non_ascii_body_signature_verifies_against_wire_body(self, mock_client, mock_private_key):
+        """Non-ASCII bodies are sent as the exact ASCII-escaped bytes that were signed (#12, #13)."""
+        route = respx.post(f"{BASE_URL}/v1/issues").mock(return_value=Response(200, json=make_api_response([])))
+        body = {"Title": "Température élevée - 温度", "Summary": "Ω"}
+
+        mock_client.post("/v1/issues", json=body)
+
+        request = route.calls.last.request
+        request.content.decode("ascii")  # wire body is pure ASCII
+        assert json.loads(request.content) == body
+        _verify_wire_signature(request, mock_private_key, self.API_KEY)
+
+    @respx.mock
+    def test_non_ascii_query_param_signature_verifies(self, mock_client, mock_private_key):
+        """GET with non-ASCII query values is signed (UTF-8) instead of raising (#12)."""
+        route = respx.get(f"{BASE_URL}/v1/assets").mock(return_value=Response(200, json=make_api_response([])))
+
+        mock_client.get("/v1/assets", params={"name": "Kühler"})
+
+        request = route.calls.last.request
+        assert "Content-Type" not in request.headers
+        _verify_wire_signature(request, mock_private_key, self.API_KEY)
+
+    @respx.mock
+    def test_delete_with_list_body_signature_verifies(self, mock_client, mock_private_key):
+        """A JSON list body on DELETE is signed and sent as the same bytes."""
+        route = respx.delete(f"{BASE_URL}/v1/issues/abc/keywords").mock(
+            return_value=Response(200, json=make_api_response([]))
+        )
+
+        mock_client.delete("/v1/issues/abc/keywords", json=["k1", "k2"])
+
+        request = route.calls.last.request
+        assert request.content == b'["k1","k2"]'
+        _verify_wire_signature(request, mock_private_key, self.API_KEY)
+
+    @respx.mock
+    def test_custom_content_type_header_wins(self, mock_client):
+        """A caller-supplied Content-Type still overrides the default."""
+        route = respx.post(f"{BASE_URL}/v1/issues").mock(return_value=Response(200, json=make_api_response([])))
+
+        mock_client.post("/v1/issues", json={"a": 1}, headers={"Content-Type": "application/json; charset=utf-8"})
+
+        assert route.calls.last.request.headers["Content-Type"] == "application/json; charset=utf-8"
+
+    def test_nan_body_rejected(self, mock_client):
+        """NaN is not valid JSON; it is rejected before sending, as httpx did before."""
+        with pytest.raises(ValueError):
+            mock_client.post("/v1/issues", json={"v": float("nan")})
+
+
+class TestMaxRetries:
+    """Every request is attempted at least once regardless of max_retries (#15)."""
+
+    @respx.mock
+    def test_max_retries_zero_still_sends_request(self, mock_private_key):
+        route = respx.get(f"{BASE_URL}/v1/assets").mock(
+            return_value=Response(200, json=make_api_response([make_asset()]))
+        )
+        client = AtonixClient(api_key="testkey", private_key=mock_private_key, max_retries=0)
+
+        result = client.get("/v1/assets")
+
+        assert result is not None
+        assert result["Success"] is True
+        assert route.call_count == 1
+
+    @respx.mock
+    def test_max_retries_zero_raises_without_retrying(self, mock_private_key):
+        route = respx.get(f"{BASE_URL}/v1/assets").mock(return_value=Response(500, json={"Success": False}))
+        client = AtonixClient(api_key="testkey", private_key=mock_private_key, max_retries=0)
+
+        with pytest.raises(ServerError):
+            client.get("/v1/assets")
+        assert route.call_count == 1
+
+    @respx.mock
+    def test_max_retries_zero_network_error_raises(self, mock_private_key):
+        respx.get(f"{BASE_URL}/v1/assets").mock(side_effect=httpx.ConnectError("refused"))
+        client = AtonixClient(api_key="testkey", private_key=mock_private_key, max_retries=0)
+
+        with pytest.raises(APIError, match="Network error"):
+            client.get("/v1/assets")
+
+    def test_negative_max_retries_rejected(self, mock_private_key):
+        with pytest.raises(ValueError, match="max_retries"):
+            AtonixClient(api_key="testkey", private_key=mock_private_key, max_retries=-1)
