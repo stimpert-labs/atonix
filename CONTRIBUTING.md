@@ -287,13 +287,19 @@ If adding new features:
 - Keep examples clear and concise
 - Show the most common use case
 
-### Generate API Docs
+### Docs Site
 
-Generate HTML documentation:
+The docs are built with [MkDocs](https://www.mkdocs.org/) and
+[Material for MkDocs](https://squidfunk.github.io/mkdocs-material/). Guide pages are Markdown in
+`docs/`, and the API reference is generated from docstrings by
+[mkdocstrings](https://mkdocstrings.github.io/). The nav is defined in `mkdocs.yml`.
 
 ```bash
-uv run pdoc atonix -o ./docs --docformat google
+uv run mkdocs serve           # live preview at http://127.0.0.1:8000
+uv run mkdocs build --strict  # what CI runs; warnings fail the build
 ```
+
+When adding a public class, add it to the matching page under `docs/reference/`.
 
 ---
 

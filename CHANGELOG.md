@@ -10,9 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - The `cryptography` requirement no longer has an upper bound (now `cryptography>=48.0.1`), so
   installing `atonix` no longer blocks newer `cryptography` releases in your environment.
-- The API docs now open with a user guide (quick start, sync vs. async, authentication, usage
-  examples, error handling), and the reference lists clients, sync resources, async resources,
-  and exceptions in groups instead of alphabetically.
+- The docs site moved from pdoc to Material for MkDocs. It has a quick start, an authentication
+  guide, a "Sync or async?" page, per-resource usage examples with sync/async tabs, pagination
+  and error-handling guides, and an API reference grouped into clients, resources, async
+  resources, object models, and exceptions.
 
 ## [0.6.0] - 2026-10-08
 

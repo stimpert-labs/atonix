@@ -43,7 +43,9 @@ atonix/
 │   ├── issues.py          # Issues resource implementation
 │   ├── processdata.py     # ProcessData resource implementation
 │   └── models.py          # Models resource implementation
+├── docs/                  # MkDocs site (guide + API reference pages)
 ├── tests/                 # Test suite
+├── mkdocs.yml             # Docs site configuration
 ├── pyproject.toml         # Build and dependency configuration (uv)
 └── README.md              # Public documentation and examples
 ```
@@ -71,7 +73,7 @@ atonix/
 ### 4. Tooling
 - **Dependency Management**: `uv`
 - **Linting/Formatting**: `ruff`
-- **Documentation**: `pdoc`
+- **Documentation**: MkDocs + Material + mkdocstrings (`mkdocs.yml`, pages in `docs/`)
 - **Testing**: `pytest` with `responses` for HTTP mocking
 
 ### 5. Testing Standards
@@ -124,7 +126,7 @@ When tasked with adding a new feature or updating an existing one:
 2.  **Define Models**: Create or update Pydantic models in `atonix/object_models/`.
 3.  **Implement Resource Methods**: Add the corresponding methods to the resource class (e.g., `atonix/issues.py`).
 4.  **Verify**: Ensure types are correct and pagination is handled if applicable.
-5.  **Update README**: Add examples for the new functionality.
+5.  **Update Docs**: Add examples to the matching `docs/guide/` page (and README if it's a headline feature); add new public classes to `docs/reference/`.
 
 ---
 
