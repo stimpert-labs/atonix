@@ -1,11 +1,62 @@
+name: Release
+
+# Publishes a release when a version bump lands on main.
+#
+# A release PR (see "Release Process" in CONTRIBUTING.md) changes the version in
+# pyproject.toml. When it merges, this workflow sees a version with no matching
+# vX.Y.Z tag and builds, publishes to PyPI, creates the tag and GitHub Release,
+# and deploys the docs. Other pyproject.toml changes (e.g. Dependabot) leave the
+# version alone, so the tag already exists and nothing is released.
+#
+# The tag is created last, by `gh release create`, so a tag always means the
+# version is on PyPI. Everything runs in this one workflow because a tag created
+# with GITHUB_TOKEN does not trigger other workflows; docs.yml is called directly.
+
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+    paths: [pyproject.toml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
+  check:
+    name: Check for unreleased version
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read version and look for its tag
+        id: version
+        run: |
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          existing="$(git ls-remote --tags origin "refs/tags/v$version")"
+          if [[ -n "$existing" ]]; then
+            echo "v$version is already tagged; nothing to release."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! grep -q "^## \[$version\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [$version]' section. Run bump-my-version to create it."
+            exit 1
+          fi
+          echo "Releasing v$version."
+          echo "release=true" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build distribution
+    needs: [check]
+    if: needs.check.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -42,3 +93,44 @@ jobs:
           path: dist
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Lets a re-run finish the tag/release/docs steps if PyPI already has the files.
+          skip-existing: true
+
+  github-release:
+    name: Tag and create GitHub Release
+    needs: [check, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download dist artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: dist
+          path: dist
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          # Release notes are this version's CHANGELOG.md section.
+          awk -v heading="## [$VERSION]" '
+            index($0, heading) == 1 { found = 1; next }
+            found && (/^## \[/ || /^\[[^]]+\]: /) { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          gh release create "v$VERSION" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "v$VERSION" \
+            --notes-file notes.md
+
+  docs:
+    name: Deploy docs
+    needs: [github-release]
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/docs.yml

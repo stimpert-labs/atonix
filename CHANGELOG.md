@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The `cryptography` requirement no longer has an upper bound (now `cryptography>=48.0.1`), so
+  installing `atonix` no longer blocks newer `cryptography` releases in your environment.
+
 ## [0.6.0] - 2026-10-08
 
 ### Added

@@ -1,9 +1,10 @@
 name: Docs
 
+# Deploys the API docs to GitHub Pages. Called by release.yml after each
+# release; run it manually to redeploy without releasing.
+
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_call:
   workflow_dispatch:
 
 permissions:

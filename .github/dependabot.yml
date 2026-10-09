@@ -4,6 +4,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # atonix is a library: its pyproject.toml bounds are what users install with.
+    # "widen" never raises a minimum, and since runtime deps have no upper caps it
+    # leaves them alone and only updates uv.lock (what CI tests against).
+    versioning-strategy: "widen"
     open-pull-requests-limit: 10
     groups:
       python-minor-patch:
