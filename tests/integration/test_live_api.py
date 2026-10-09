@@ -14,12 +14,40 @@ Required environment variables:
 Run with:
     export ATONIX_API_KEY="your-key"
     export ATONIX_PRIVATE_KEY_PATH="/path/to/key.pem"
-    uv run pytest tests/integration/ -v
+    uv run pytest tests/integration/ -m integration -v
 """
+
+from collections.abc import Iterable
+from itertools import islice
+from typing import TypeVar
 
 import pytest
 
+from atonix.object_models.assets import Asset
+from atonix.object_models.issues import BareIssue
+from atonix.object_models.models import Model
+from atonix.object_models.processdata import Server, Tag
+
 pytestmark = pytest.mark.integration
+
+T = TypeVar("T")
+
+# Listing methods return lazy iterators that page through the whole tenant.
+# Each smoke test asks for one small page and stops after SAMPLE_SIZE items.
+SAMPLE_SIZE = 3
+
+
+def _first(items: Iterable[T], n: int = SAMPLE_SIZE) -> list[T]:
+    """Return at most the first ``n`` items without consuming the rest."""
+    return list(islice(items, n))
+
+
+def _first_top_asset(live_client) -> Asset:
+    """Return one top-level asset, or skip the test if the tenant has none."""
+    assets = _first(live_client.assets.get_top(take=1), 1)
+    if not assets:
+        pytest.skip("No assets available to test with")
+    return assets[0]
 
 
 class TestLiveAssets:
@@ -27,26 +55,20 @@ class TestLiveAssets:
 
     def test_can_fetch_top_assets(self, live_client):
         """Smoke test: Can authenticate and retrieve top-level assets."""
-        assets = live_client.assets.get_top()
+        assets = _first(live_client.assets.get_top(take=SAMPLE_SIZE))
 
-        # We should be able to get some assets (may be empty for limited accounts)
-        assert isinstance(assets, list)
-        # If we got assets, verify they have expected structure
-        if assets:
-            assert hasattr(assets[0], "id")
-            assert hasattr(assets[0], "abbrev")
+        # May be empty for limited accounts; the request itself must succeed.
+        assert all(isinstance(asset, Asset) for asset in assets)
+        for asset in assets:
+            assert asset.id
 
     def test_can_get_asset_children(self, live_client):
         """Smoke test: Can retrieve children of an asset."""
-        top_assets = live_client.assets.get_top()
+        parent = _first_top_asset(live_client)
 
-        if not top_assets:
-            pytest.skip("No assets available to test with")
+        children = _first(live_client.assets.get_children(parent.id, take=SAMPLE_SIZE))
 
-        parent_id = top_assets[0].id
-        children = live_client.assets.get_children(parent_id)
-
-        assert isinstance(children, list)
+        assert all(isinstance(child, Asset) for child in children)
 
 
 class TestLiveProcessData:
@@ -54,25 +76,21 @@ class TestLiveProcessData:
 
     def test_can_list_servers(self, live_client):
         """Smoke test: Can list available data servers."""
-        servers = live_client.process_data.get_servers()
+        servers = _first(live_client.process_data.get_servers(take=SAMPLE_SIZE))
 
-        assert isinstance(servers, list)
-        # If we got servers, verify they have expected structure
-        if servers:
-            assert hasattr(servers[0], "id")
-            assert hasattr(servers[0], "name")
+        assert all(isinstance(server, Server) for server in servers)
+        for server in servers:
+            assert server.server_id
 
     def test_can_list_tags_for_server(self, live_client):
         """Smoke test: Can list tags for a server."""
-        servers = live_client.process_data.get_servers()
-
+        servers = _first(live_client.process_data.get_servers(take=1), 1)
         if not servers:
             pytest.skip("No servers available to test with")
 
-        server_id = servers[0].id
-        tags = live_client.process_data.get_tags_list(server_id)
+        tags = _first(live_client.process_data.get_tags_list(servers[0].server_id, take=SAMPLE_SIZE))
 
-        assert isinstance(tags, list)
+        assert all(isinstance(tag, Tag) for tag in tags)
 
 
 class TestLiveIssues:
@@ -80,15 +98,11 @@ class TestLiveIssues:
 
     def test_can_fetch_issues_for_asset(self, live_client):
         """Smoke test: Can retrieve issues for an asset."""
-        top_assets = live_client.assets.get_top()
+        asset = _first_top_asset(live_client)
 
-        if not top_assets:
-            pytest.skip("No assets available to test with")
+        issues = _first(live_client.issues.get_issues(asset_id=asset.id, take=SAMPLE_SIZE))
 
-        asset_id = top_assets[0].id
-        issues = live_client.issues.get_issues(asset_id=asset_id)
-
-        assert isinstance(issues, list)
+        assert all(isinstance(issue, BareIssue) for issue in issues)
 
 
 class TestLiveModels:
@@ -96,15 +110,11 @@ class TestLiveModels:
 
     def test_can_fetch_models_for_asset(self, live_client):
         """Smoke test: Can retrieve models for an asset."""
-        top_assets = live_client.assets.get_top()
+        asset = _first_top_asset(live_client)
 
-        if not top_assets:
-            pytest.skip("No assets available to test with")
+        models = _first(live_client.models.get_models(asset_id=asset.id, take=SAMPLE_SIZE))
 
-        asset_id = top_assets[0].id
-        models = live_client.models.get_models(asset_id=asset_id)
-
-        assert isinstance(models, list)
+        assert all(isinstance(model, Model) for model in models)
 
 
 class TestLiveRequestSigning:
@@ -129,7 +139,6 @@ class TestLiveRequestSigning:
     def test_json_body_signature_accepted(self, live_client):
         """A non-ASCII POST body is signed from the exact wire text, and the server accepts it."""
         from datetime import datetime, timedelta, timezone
-        from itertools import islice
 
         from atonix.exceptions import AtonixError, AuthenticationError
 
