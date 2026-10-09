@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build API docs (pdoc)
+    name: Build docs (MkDocs)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -26,7 +26,7 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --group dev --frozen
       - name: Build docs
-        run: uv run pdoc atonix -o site --docformat google
+        run: uv run mkdocs build --strict --site-dir site
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:

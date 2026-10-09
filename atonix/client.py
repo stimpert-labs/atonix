@@ -411,7 +411,7 @@ class AtonixClient(_BaseAtonixClient):
         """Close the underlying HTTP client."""
         self._client.close()
 
-    def request(self, method: str, endpoint: str, **kwargs) -> Any:
+    def request(self, method: str, endpoint: str, **kwargs: Any) -> Any:
         """
         Executes a synchronous HTTP request to the Atonix API with retry logic.
 
@@ -537,7 +537,7 @@ class AsyncAtonixClient(_BaseAtonixClient):
         """Close the underlying HTTP client."""
         await self._client.aclose()
 
-    async def request(self, method: str, endpoint: str, **kwargs) -> Any:
+    async def request(self, method: str, endpoint: str, **kwargs: Any) -> Any:
         """
         Executes an asynchronous HTTP request to the Atonix API with retry logic.
 

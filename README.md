@@ -306,12 +306,13 @@ asyncio.run(main())
 
 ## Documentation
 
-API reference documentation for the latest release is published at **<https://atonix.stimpert-labs.dev>**.
+Documentation for the latest release is published at **<https://atonix.stimpert-labs.dev>**.
 
-Comprehensive docstrings are provided for all public methods. You can also generate the HTML documentation locally using `pdoc`:
+The site includes a quick start, a guide to choosing between the sync and async clients,
+usage examples, and the full API reference. To preview it locally:
 
 ```bash
-uv run pdoc atonix -o ./docs --docformat google
+uv run mkdocs serve
 ```
 
 ## Error Handling

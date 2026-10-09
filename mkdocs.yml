@@ -1,0 +1,106 @@
+site_name: atonix
+site_description: Unofficial, type-safe Python client for the Prometheus APM (formerly AtonixOI) API.
+site_url: https://atonix.stimpert-labs.dev/
+repo_url: https://github.com/stimpert-labs/atonix
+repo_name: stimpert-labs/atonix
+edit_uri: ""
+copyright: Copyright &copy; 2023-2026 Kolton Stimpert. Not affiliated with Prometheus Group.
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+  icon:
+    repo: fontawesome/brands/github
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Quick start: getting-started/quickstart.md
+      - Authentication: getting-started/authentication.md
+  - User guide:
+      - Sync or async?: guide/sync-vs-async.md
+      - Assets: guide/assets.md
+      - Process data: guide/process-data.md
+      - Issues: guide/issues.md
+      - Models: guide/models.md
+      - Pagination: guide/pagination.md
+      - Error handling: guide/errors.md
+  - API reference:
+      - reference/index.md
+      - Clients: reference/clients.md
+      - Resources: reference/resources.md
+      - Async resources: reference/async-resources.md
+      - Object models: reference/object-models.md
+      - Exceptions: reference/exceptions.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          inventories:
+            - https://docs.python.org/3/objects.inv
+            - https://docs.pydantic.dev/latest/objects.inv
+          options:
+            docstring_style: google
+            extensions:
+              - griffe_pydantic:
+                  schema: false
+            filters: ["!^_"]
+            members_order: source
+            merge_init_into_class: true
+            separate_signature: true
+            show_signature_annotations: true
+            signature_crossrefs: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            show_source: false
+            show_bases: true
+            heading_level: 2

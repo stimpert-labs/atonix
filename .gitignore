@@ -8,7 +8,7 @@ dist/
 build/
 *.egg-info/
 .eggs/
-docs/
+site/
 
 # Unit Test / Coverage
 .pytest_cache/
