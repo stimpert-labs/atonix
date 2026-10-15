@@ -87,7 +87,7 @@ jobs:
       id-token: write  # required for OIDC / Trusted Publisher
     steps:
       - name: Download dist artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist
@@ -106,7 +106,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Download dist artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist
