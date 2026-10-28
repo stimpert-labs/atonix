@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Python 3.14 is now tested in CI and listed in the package classifiers.
+
 ## [0.8.0] - 2026-10-28
 
 ### Removed
