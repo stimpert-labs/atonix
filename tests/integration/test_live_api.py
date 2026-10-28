@@ -18,6 +18,7 @@ Run with:
 """
 
 from collections.abc import Iterable
+from datetime import UTC
 from itertools import islice
 from typing import TypeVar
 
@@ -138,7 +139,7 @@ class TestLiveRequestSigning:
 
     def test_json_body_signature_accepted(self, live_client):
         """A non-ASCII POST body is signed from the exact wire text, and the server accepts it."""
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         from atonix.exceptions import AtonixError, AuthenticationError
 
@@ -149,7 +150,7 @@ class TestLiveRequestSigning:
         if not tags:
             pytest.skip("No tags available to test with")
 
-        end = datetime.now(timezone.utc)
+        end = datetime.now(UTC)
         payload = {
             "ServerId": servers[0].server_id,
             "Start": (end - timedelta(hours=1)).isoformat(),

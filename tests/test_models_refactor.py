@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 # Copyright (c) 2023-2026 Kolton Stimpert
-from datetime import datetime
+from datetime import UTC, datetime
 
 import respx
 from httpx import Response
@@ -144,13 +144,11 @@ def test_get_model_actions_with_filters(mock_client):
     start_date = datetime(2023, 1, 1, 12, 0, 0)
     end_date = datetime(2023, 1, 31, 12, 0, 0)
 
-    from datetime import timezone
-
     # Expected formatting: 2023-01-01T12:00:00.000Z
     # The code implementation uses: .astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
     def fmt(dt):
-        return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
     params = {"skip": 0, "take": 500, "changedAfter": fmt(start_date), "changedBefore": fmt(end_date)}
 

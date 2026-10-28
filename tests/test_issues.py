@@ -3,6 +3,7 @@
 """Tests for the Issues resource."""
 
 import json
+from datetime import UTC
 
 import pytest
 import respx
@@ -181,14 +182,14 @@ class TestGetIssuesWithFilters:
     @respx.mock
     def test_get_issues_with_changed_after(self, mock_client):
         """get_issues should pass changedAfter parameter to API."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         issues_data = make_bare_issues(2)
         route = respx.get(f"{BASE_URL}/v1/issues").mock(
             return_value=Response(200, json=make_api_response(issues_data, count=2, type_name="BareIssue"))
         )
 
-        dt = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        dt = datetime(2025, 1, 15, 12, 0, 0, tzinfo=UTC)
         issues_api = Issues(mock_client)
         result = list(issues_api.get_issues(asset_id="test-asset-id", changed_after=dt))
 
@@ -198,14 +199,14 @@ class TestGetIssuesWithFilters:
     @respx.mock
     def test_get_issues_with_changed_before(self, mock_client):
         """get_issues should pass changedBefore parameter to API."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         issues_data = make_bare_issues(2)
         route = respx.get(f"{BASE_URL}/v1/issues").mock(
             return_value=Response(200, json=make_api_response(issues_data, count=2, type_name="BareIssue"))
         )
 
-        dt = datetime(2025, 6, 1, 0, 0, 0, tzinfo=timezone.utc)
+        dt = datetime(2025, 6, 1, 0, 0, 0, tzinfo=UTC)
         issues_api = Issues(mock_client)
         result = list(issues_api.get_issues(asset_id="test-asset-id", changed_before=dt))
 

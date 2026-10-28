@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Iterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from atonix.object_models.common import APIResponse
@@ -19,7 +19,7 @@ T = TypeVar("T")
 
 def _to_utc_ms_str(dt: datetime) -> str:
     """Format a datetime as UTC ISO 8601 with millisecond precision (e.g. '2024-01-15T12:00:00.000Z')."""
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 def _parse_api_response(result_type: type[T], data: dict[str, Any]) -> APIResponse[T]:

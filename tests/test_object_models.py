@@ -2,7 +2,7 @@
 # Copyright (c) 2023-2026 Kolton Stimpert
 """Tests for Pydantic object models."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from atonix.object_models.assets import Asset
 from atonix.object_models.common import APIResponse
@@ -364,7 +364,7 @@ class TestProcessDataModels:
 
     def test_tag_data_series_serialization(self):
         """TagData should serialize for write operations."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         series = TagData(tag_id="44444444-4444-4444-4444-444444444444", timestamps=[now], values=[100.5], statuses=[0])
 
         json_data = series.model_dump(by_alias=True)

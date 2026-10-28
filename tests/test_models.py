@@ -2,7 +2,7 @@
 # Copyright (c) 2023-2026 Kolton Stimpert
 """Tests for the Models resource."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import respx
 from httpx import Response
@@ -155,8 +155,8 @@ class TestGetModelConfig:
         """get_model_actions_by_asset should return Action objects for an asset's models."""
         asset_id = "00000000-0000-0000-0000-000000000001"
         actions_data = make_action_items_by_asset(3)
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end = datetime(2024, 1, 31, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 31, tzinfo=UTC)
         respx.get(f"{BASE_URL}/v1/models/actions").mock(
             return_value=Response(200, json=make_api_response(actions_data, count=3, type_name="Action"))
         )
@@ -171,8 +171,8 @@ class TestGetModelConfig:
     def test_get_model_actions_by_asset_with_flags(self, mock_client):
         """get_model_actions_by_asset should pass favorite and includeDescendants when set."""
         asset_id = "00000000-0000-0000-0000-000000000001"
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end = datetime(2024, 1, 31, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 31, tzinfo=UTC)
         route = respx.get(f"{BASE_URL}/v1/models/actions").mock(
             return_value=Response(200, json=make_api_response([], count=0))
         )

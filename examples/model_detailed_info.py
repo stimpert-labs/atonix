@@ -12,7 +12,7 @@ This example demonstrates how to drill down into a specific model's details:
 
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from atonix import AtonixClient
 
@@ -87,7 +87,7 @@ def main():
             logger.info(f"  Inputs: {len(config.inputs)}")
 
         # 6. Get recent actions
-        end_date = datetime.now(timezone.utc)
+        end_date = datetime.now(UTC)
         start_date = end_date - timedelta(days=30)
 
         logger.info(f"Retrieving actions since {start_date.date()}...")

@@ -11,7 +11,7 @@ This example demonstrates how to retrieve model information at the asset level:
 
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from atonix import AtonixClient
 
@@ -71,7 +71,7 @@ def main():
 
         # 4. Get all actions for the asset hierarchy in a date range
         try:
-            end_date = datetime.now(timezone.utc)
+            end_date = datetime.now(UTC)
             start_date = end_date - timedelta(days=7)  # Last week
 
             logger.info(f"\nRetrieving all model actions in hierarchy since {start_date.date()}...")

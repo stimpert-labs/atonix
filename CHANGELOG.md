@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- Python 3.10 support. atonix now requires Python 3.11 or newer. The dev toolchain needs
+  `filelock` 4.2.1 or newer to fix three security advisories, and that release requires
+  Python 3.11.
+
 ## [0.7.0] - 2026-10-09
 
 ### Added
