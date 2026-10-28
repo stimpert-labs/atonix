@@ -10,7 +10,7 @@ An **unofficial**, type-safe Python client for the Prometheus APM (formerly Aton
 [![CI](https://github.com/stimpert-labs/atonix/actions/workflows/ci.yml/badge.svg)](https://github.com/stimpert-labs/atonix/actions/workflows/ci.yml)
 [![Docs](https://github.com/stimpert-labs/atonix/actions/workflows/docs.yml/badge.svg)](https://atonix.stimpert-labs.dev)
 [![CodeQL](https://github.com/stimpert-labs/atonix/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/stimpert-labs/atonix/security/code-scanning)
-[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://www.python.org/downloads/)
+[![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://www.python.org/downloads/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![License: LGPL v3+](https://img.shields.io/badge/license-LGPL--3.0--or--later-blue)](COPYING.LESSER)
 <!-- [![PyPI version](https://img.shields.io/pypi/v/atonix.svg)](https://pypi.org/project/atonix/) -->

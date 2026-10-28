@@ -2,7 +2,7 @@
 # Copyright (c) 2023-2026 Kolton Stimpert
 """Tests for the Assets resource."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 import respx
@@ -143,8 +143,8 @@ class TestAssets:
             return_value=Response(200, json=make_api_response([], count=0, type_name="Asset"))
         )
 
-        changed_after = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        changed_before = datetime(2024, 6, 1, tzinfo=timezone.utc)
+        changed_after = datetime(2024, 1, 1, tzinfo=UTC)
+        changed_before = datetime(2024, 6, 1, tzinfo=UTC)
 
         assets_api = Assets(mock_client)
         list(assets_api.get_children(parent_id, changed_after=changed_after, changed_before=changed_before))

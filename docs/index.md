@@ -22,7 +22,7 @@ exceptions, and it returns [Pydantic v2](https://docs.pydantic.dev/) models inst
 pip install atonix
 ```
 
-Python 3.10 or newer is required.
+Python 3.11 or newer is required.
 
 ## A first call
 

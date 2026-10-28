@@ -6,7 +6,7 @@ Thank you for your interest in contributing to the Atonix Python client library!
 
 ### Prerequisites
 
-- Python 3.10 or higher
+- Python 3.11 or higher
 - [uv](https://docs.astral.sh/uv/) package manager
 
 If you don't have `uv` installed:
@@ -61,7 +61,7 @@ uv run ruff check --fix .
 
 Ruff is configured in `pyproject.toml`:
 - Line length: 120 characters
-- Target: Python 3.10+
+- Target: Python 3.11+
 - Selected rules: `E`, `F`, `I`, `B`, `UP`, `S`, `RUF`, `SIM`
 
 ### Pre-commit hooks

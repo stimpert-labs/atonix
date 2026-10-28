@@ -13,6 +13,7 @@ This example demonstrates:
 
 import logging
 import os
+from datetime import UTC
 
 from atonix import AtonixClient
 
@@ -126,9 +127,9 @@ def main():
         logger.info(f"Found {len(all_issues)} total issue(s) (including children)")
 
         # Example 10: Filter issues by date range
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
-        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        cutoff = datetime.now(UTC) - timedelta(days=30)
         logger.info(f"Fetching issues changed after {cutoff.date()}...")
         recent_issues = list(
             client.issues.get_issues(

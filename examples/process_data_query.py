@@ -12,7 +12,7 @@ This example demonstrates:
 
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from atonix import AtonixClient
 from atonix.object_models.processdata import Server
@@ -79,7 +79,7 @@ def main():
         tag_ids = [tag.tag_id for tag in selected_tags]
 
         # Define time range (last hour)
-        end_time = datetime.now(timezone.utc)
+        end_time = datetime.now(UTC)
         start_time = end_time - timedelta(hours=1)
 
         logger.info(f"Querying data for {len(tag_ids)} tag(s)...")

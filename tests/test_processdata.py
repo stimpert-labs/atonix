@@ -3,7 +3,7 @@
 """Tests for the ProcessData resource."""
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 
 import pytest
@@ -132,8 +132,8 @@ class TestGetDataForRange:
         pd_api = ProcessData(mock_client)
         result = pd_api.get_data_for_range(
             server_id=server_id,
-            start_time=datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
-            end_time=datetime(2024, 1, 15, 12, 30, 0, tzinfo=timezone.utc),
+            start_time=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+            end_time=datetime(2024, 1, 15, 12, 30, 0, tzinfo=UTC),
             tag_ids=tag_ids,
             archive="1min",
         )
@@ -163,8 +163,8 @@ class TestGetDataForRange:
 
         result = ProcessData(mock_client).get_data_for_range(
             server_id=server_id,
-            start_time=datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
-            end_time=datetime(2024, 1, 15, 12, 30, 0, tzinfo=timezone.utc),
+            start_time=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+            end_time=datetime(2024, 1, 15, 12, 30, 0, tzinfo=UTC),
             tag_ids=tag_ids,
             archive="1min",
         )
@@ -186,7 +186,7 @@ class TestWriteTagData:
         )
 
         pd_api = ProcessData(mock_client)
-        tag_data = [TagData(tag_id="tag1", timestamps=[datetime.now(timezone.utc)], values=[100.0], statuses=[0])]
+        tag_data = [TagData(tag_id="tag1", timestamps=[datetime.now(UTC)], values=[100.0], statuses=[0])]
         pd_api.write_tag_data(server_id, "1min", tag_data)
 
         assert len(respx.calls) == 1
@@ -207,7 +207,7 @@ class TestWriteTagData:
         )
 
         pd_api = ProcessData(mock_client)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # 100 tiny tags, one point each — well under the 30k chunk limit.
         tag_data = [TagData(tag_id=f"tag-{n}", timestamps=[now], values=[float(n)], statuses=[0]) for n in range(100)]
 
@@ -231,7 +231,7 @@ class TestWriteTagData:
         )
 
         pd_api = ProcessData(mock_client)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # Four tags of 10,000 points each = 40,000 total points.
         # Chunk limit is 30,000:
         #   tag-0 -> batch=10k
@@ -273,7 +273,7 @@ class TestWriteTagData:
         respx.post(f"{BASE_URL}/v1/processdata/write").mock(
             return_value=Response(200, json=make_api_response([], count=0))
         )
-        tag_data = [TagData(tag_id="tag1", timestamps=[datetime.now(timezone.utc)], values=None)]
+        tag_data = [TagData(tag_id="tag1", timestamps=[datetime.now(UTC)], values=None)]
 
         with pytest.raises(ValueError, match="tag1"):
             ProcessData(mock_client).write_tag_data("server", "1min", tag_data)
@@ -286,8 +286,8 @@ class TestWriteTagData:
         )
 
         pd_api = ProcessData(mock_client)
-        changed_after = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        changed_before = datetime(2024, 2, 1, tzinfo=timezone.utc)
+        changed_after = datetime(2024, 1, 1, tzinfo=UTC)
+        changed_before = datetime(2024, 2, 1, tzinfo=UTC)
         result = list(pd_api.get_tags_list(server_id, changed_after=changed_after, changed_before=changed_before))
 
         assert len(result) == 5
@@ -321,8 +321,8 @@ class TestValidateQuerySize:
 
     def test_zero_interval_skips_size_check(self):
         """_validate_query_size should return True (skip check) when interval <= 0 (raw data)."""
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end = datetime(2024, 12, 31, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 12, 31, tzinfo=UTC)
         # interval=0 represents raw data — no size limit applies
         assert _validate_query_size(tag_count=1000, start_time=start, end_time=end, interval=0) is True
 
@@ -337,7 +337,7 @@ class TestValidateQuerySize:
 
         pd_api = ProcessData(mock_client)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # 35000 points, chunk limit is 30000 -> 2 chunks
         timestamps = [now + timedelta(minutes=i) for i in range(35000)]
         values = [float(i) for i in range(35000)]
@@ -364,8 +364,8 @@ class TestGetDataForRangeEdgeCases:
     def test_invalid_time_range_raises(self, mock_client):
         """get_data_for_range should raise ValueError when start > end."""
         pd_api = ProcessData(mock_client)
-        start = datetime(2024, 2, 1, tzinfo=timezone.utc)
-        end = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        start = datetime(2024, 2, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 1, tzinfo=UTC)
 
         with pytest.raises(ValueError, match="Start time must be before end time"):
             pd_api.get_data_for_range("server-id", start, end, ["tag-id"], "1min")
@@ -383,8 +383,8 @@ class TestGetDataForRangeEdgeCases:
         )
 
         pd_api = ProcessData(mock_client)
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end = datetime(2024, 1, 2, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 2, tzinfo=UTC)
 
         with pytest.raises(ValueError, match="Archive `1min` not found"):
             pd_api.get_data_for_range(server_id, start, end, ["tag-id"], "1min")
@@ -398,8 +398,8 @@ class TestGetDataForRangeEdgeCases:
         query_route = respx.post(f"{BASE_URL}/v1/processdata/query")
 
         pd_api = ProcessData(mock_client)
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end = datetime(2024, 1, 2, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 2, tzinfo=UTC)
         tag_ids = [f"tag-{i}" for i in range(500)]
 
         with pytest.raises(QuerySizeError, match="Query size exceeds limit") as exc_info:
@@ -423,7 +423,7 @@ class TestGetDataForRangeEdgeCases:
         route = respx.post(f"{BASE_URL}/v1/processdata/query").mock(side_effect=query_echo_side_effect)
 
         pd_api = ProcessData(mock_client)
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, tzinfo=UTC)
         end = start + timedelta(minutes=45_000)
         tag_ids = [f"tag-{i}" for i in range(500)]
 
@@ -446,7 +446,7 @@ class TestGetDataForRangeEdgeCases:
         route = respx.post(f"{BASE_URL}/v1/processdata/query").mock(side_effect=query_echo_side_effect)
 
         pd_api = ProcessData(mock_client)
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, tzinfo=UTC)
         end = start + timedelta(minutes=300_000)
 
         result = pd_api.get_data_for_range(server_id, start, end, ["tag-0"], "1min")
@@ -481,8 +481,8 @@ class TestGetDataForRangeEdgeCases:
         )
 
         pd_api = ProcessData(mock_client)
-        start = datetime(2024, 1, 15, tzinfo=timezone.utc)
-        end = datetime(2024, 1, 15, 1, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 15, tzinfo=UTC)
+        end = datetime(2024, 1, 15, 1, tzinfo=UTC)
 
         with pytest.raises(APIError):
             pd_api.get_data_for_range(server_id, start, end, ["tag-id"], "1min")
@@ -508,8 +508,8 @@ class TestGetDataForRangeEdgeCases:
         respx.post(f"{BASE_URL}/v1/processdata/query").mock(return_value=Response(200, json=data_response))
 
         pd_api = ProcessData(mock_client)
-        start = datetime(2024, 1, 15, tzinfo=timezone.utc)
-        end = datetime(2024, 1, 15, 1, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 15, tzinfo=UTC)
+        end = datetime(2024, 1, 15, 1, tzinfo=UTC)
 
         # Should not raise — just logs the error
         result = pd_api.get_data_for_range(server_id, start, end, [tag_id], "1min")
@@ -563,8 +563,8 @@ class TestPayloadLogging:
         with caplog.at_level("DEBUG", logger="atonix.processdata"):
             pd_api.get_data_for_range(
                 server_id,
-                datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
-                datetime(2024, 1, 15, 12, 30, 0, tzinfo=timezone.utc),
+                datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+                datetime(2024, 1, 15, 12, 30, 0, tzinfo=UTC),
                 [tag_id],
                 "1min",
             )
@@ -591,8 +591,8 @@ class TestPayloadLogging:
         with caplog.at_level("DEBUG", logger="atonix.processdata"):
             pd_api.get_data_for_range(
                 server_id,
-                datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
-                datetime(2024, 1, 15, 12, 30, 0, tzinfo=timezone.utc),
+                datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+                datetime(2024, 1, 15, 12, 30, 0, tzinfo=UTC),
                 [tag_id],
                 "1min",
             )
@@ -625,7 +625,7 @@ class TestPlanReadChunks:
             assert points_per_tag * len(tags) <= _READ_CHUNK_LIMIT
 
     def test_wide_short_query_splits_by_tag_only(self):
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, tzinfo=UTC)
         end = start + timedelta(minutes=60)
         tag_ids = [f"tag-{i}" for i in range(7500)]
 
@@ -649,7 +649,7 @@ class TestPlanReadChunks:
     )
     def test_request_count_is_minimal(self, tag_count, minutes, expected):
         """Both wide-and-short and narrow-and-long queries should pack into the fewest requests."""
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, tzinfo=UTC)
         end = start + timedelta(minutes=minutes)
 
         chunks = _plan_read_chunks([f"tag-{i}" for i in range(tag_count)], start, end, 60)
@@ -658,8 +658,8 @@ class TestPlanReadChunks:
         assert len(chunks) == expected
 
     def test_long_query_splits_by_time(self):
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end = datetime(2025, 1, 1, tzinfo=timezone.utc)  # 527,040 minutes
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2025, 1, 1, tzinfo=UTC)  # 527,040 minutes
 
         chunks = _plan_read_chunks(["tag-0", "tag-1"], start, end, 60)
 
@@ -678,7 +678,7 @@ class TestMergeTagResults:
     """Tests for the _merge_tag_results helper."""
 
     def test_preserves_request_order_and_keeps_errors(self):
-        t0 = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        t0 = datetime(2024, 1, 1, tzinfo=UTC)
         t1 = t0 + timedelta(minutes=1)
         t2 = t0 + timedelta(minutes=2)
         chunk_a = [

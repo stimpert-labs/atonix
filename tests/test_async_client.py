@@ -3,7 +3,7 @@
 """Tests for the async API: AsyncAtonixClient and async resource classes."""
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 import respx
@@ -302,8 +302,8 @@ class TestAsyncAssets:
         route = respx.get(f"{BASE_URL}/v1/assets/{parent_id}/assets").mock(
             return_value=Response(200, json=make_api_response([], count=0))
         )
-        changed_after = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        changed_before = datetime(2024, 6, 1, tzinfo=timezone.utc)
+        changed_after = datetime(2024, 1, 1, tzinfo=UTC)
+        changed_before = datetime(2024, 6, 1, tzinfo=UTC)
         _ = [
             a
             async for a in async_mock_client.assets.get_children(
@@ -557,8 +557,8 @@ class TestAsyncModels:
         from tests.conftest import make_action_items_by_asset
 
         actions_data = make_action_items_by_asset(2)
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end = datetime(2024, 1, 31, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 31, tzinfo=UTC)
         respx.get(f"{BASE_URL}/v1/models/actions").mock(
             return_value=Response(200, json=make_api_response(actions_data, count=2))
         )
@@ -685,8 +685,8 @@ class TestAsyncProcessData:
 
         result = await async_mock_client.process_data.get_data_for_range(
             server_id=server_id,
-            start_time=datetime(2024, 1, 15, 12, 0, tzinfo=timezone.utc),
-            end_time=datetime(2024, 1, 15, 12, 30, tzinfo=timezone.utc),
+            start_time=datetime(2024, 1, 15, 12, 0, tzinfo=UTC),
+            end_time=datetime(2024, 1, 15, 12, 30, tzinfo=UTC),
             tag_ids=[tag_id],
             archive="1min",
         )
@@ -696,8 +696,8 @@ class TestAsyncProcessData:
     @pytest.mark.anyio
     async def test_get_data_for_range_invalid_time_raises(self, async_mock_client):
         """async get_data_for_range should raise ValueError when start > end."""
-        start = datetime(2024, 2, 1, tzinfo=timezone.utc)
-        end = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        start = datetime(2024, 2, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 1, tzinfo=UTC)
         with pytest.raises(ValueError, match="Start time must be before end time"):
             await async_mock_client.process_data.get_data_for_range("server-id", start, end, ["tag-id"], "1min")
 
@@ -712,8 +712,8 @@ class TestAsyncProcessData:
                 json=make_api_response([{"Name": "60min", "Interval": 3600}], count=1),
             )
         )
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end = datetime(2024, 1, 2, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 2, tzinfo=UTC)
         with pytest.raises(ValueError, match="Archive `1min` not found"):
             await async_mock_client.process_data.get_data_for_range(server_id, start, end, ["tag-id"], "1min")
 
@@ -726,7 +726,7 @@ class TestAsyncProcessData:
         tag_data = [
             TagData(
                 tag_id="tag-1",
-                timestamps=[datetime.now(timezone.utc)],
+                timestamps=[datetime.now(UTC)],
                 values=[99.9],
                 statuses=[0],
             )
@@ -742,7 +742,7 @@ class TestAsyncProcessData:
         route = respx.post(f"{BASE_URL}/v1/processdata/write").mock(
             return_value=Response(200, json=make_api_response([]))
         )
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         tag_data = [TagData(tag_id=f"tag-{n}", timestamps=[now], values=[float(n)], statuses=[0]) for n in range(50)]
         await async_mock_client.process_data.write_tag_data(server_id, "1min", tag_data)
 
@@ -759,8 +759,8 @@ class TestAsyncProcessData:
         route = respx.get(f"{BASE_URL}/v1/processdata/servers/{server_id}/tags").mock(
             return_value=Response(200, json=make_api_response(make_tags(3), count=3))
         )
-        changed_after = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        changed_before = datetime(2024, 6, 1, tzinfo=timezone.utc)
+        changed_after = datetime(2024, 1, 1, tzinfo=UTC)
+        changed_before = datetime(2024, 6, 1, tzinfo=UTC)
         _ = [
             t
             async for t in async_mock_client.process_data.get_tags_list(
@@ -782,8 +782,8 @@ class TestAsyncProcessData:
                 json=make_api_response([{"Name": "1min", "Interval": 60}], count=1),
             )
         )
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2025, 1, 1, tzinfo=UTC)
         tag_ids = [f"tag-{i}" for i in range(500)]
         with pytest.raises(QuerySizeError, match="Query size exceeds limit"):
             await async_mock_client.process_data.get_data_for_range(server_id, start, end, tag_ids, "1min", chunk=False)
@@ -797,8 +797,8 @@ class TestAsyncProcessData:
             return_value=Response(200, json=make_api_response([{"Name": "1min", "Interval": 60}], count=1))
         )
         route = respx.post(f"{BASE_URL}/v1/processdata/query").mock(side_effect=query_echo_side_effect)
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end = datetime(2025, 1, 1, tzinfo=timezone.utc)  # 527,040 minutes
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2025, 1, 1, tzinfo=UTC)  # 527,040 minutes
         tag_ids = ["tag-0", "tag-1"]
 
         result = await async_mock_client.process_data.get_data_for_range(server_id, start, end, tag_ids, "1min")
@@ -829,8 +829,8 @@ class TestAsyncProcessData:
             ],
         }
         respx.post(f"{BASE_URL}/v1/processdata/query").mock(return_value=Response(200, json=data_response))
-        start = datetime(2024, 1, 15, tzinfo=timezone.utc)
-        end = datetime(2024, 1, 15, 1, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 15, tzinfo=UTC)
+        end = datetime(2024, 1, 15, 1, tzinfo=UTC)
         result = await async_mock_client.process_data.get_data_for_range(server_id, start, end, [tag_id], "1min")
         assert result[0].http_code == 404
 
@@ -1027,8 +1027,8 @@ class TestAsyncModelsEdgeCases:
         route = respx.get(f"{BASE_URL}/v1/models/{model_id}/actions").mock(
             return_value=Response(200, json=make_api_response(actions_data, count=1))
         )
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end = datetime(2024, 1, 31, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 31, tzinfo=UTC)
         _ = [
             a
             async for a in async_mock_client.models.get_model_actions(model_id, changed_after=start, changed_before=end)
@@ -1041,8 +1041,8 @@ class TestAsyncModelsEdgeCases:
     @respx.mock
     async def test_get_model_actions_by_asset_with_flags(self, async_mock_client):
         """async get_model_actions_by_asset should pass favorite and includeDescendants."""
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end = datetime(2024, 1, 31, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 31, tzinfo=UTC)
         route = respx.get(f"{BASE_URL}/v1/models/actions").mock(
             return_value=Response(200, json=make_api_response([], count=0))
         )

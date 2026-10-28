@@ -10,7 +10,7 @@ The `atonix` package is an unofficial, modern, type-safe Python client for the P
 - **Spec-Driven**: All models and client methods should align with the official Swagger documentation.
 - **Type Safety**: Use Pydantic models for all request and response objects.
 - **Ease of Use**: Provide high-level abstractions (e.g., `client.assets.get_top()`) rather than raw API calls.
-- **Modern Python**: Target Python 3.10+ and leverage modern features like type hints and Enums.
+- **Modern Python**: Target Python 3.11+ and leverage modern features like type hints and Enums.
 
 ---
 

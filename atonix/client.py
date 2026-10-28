@@ -8,7 +8,7 @@ import logging
 import os
 import time
 from base64 import b64encode
-from datetime import timezone
+from datetime import UTC
 from email.utils import parsedate_to_datetime
 from enum import Enum
 from typing import Any
@@ -33,7 +33,7 @@ from atonix.models import AsyncModels, Models
 from atonix.processdata import AsyncProcessData, ProcessData
 
 
-class AtonixEnvironment(str, Enum):
+class AtonixEnvironment(str, Enum):  # noqa: UP042  # StrEnum would change str() output
     """Available Atonix API environments."""
 
     US = "https://api-us.pgapm.io"
@@ -86,7 +86,7 @@ def _clock_skew_hint(message: str, response: httpx.Response | None) -> str:
                 server_time = None
             if server_time is not None:
                 if server_time.tzinfo is None or server_time.tzinfo.utcoffset(server_time) is None:
-                    server_time = server_time.replace(tzinfo=timezone.utc)
+                    server_time = server_time.replace(tzinfo=UTC)
                 server_ts = server_time.timestamp()
                 if abs(time.time() - server_ts) > _CLOCK_SKEW_THRESHOLD_SECONDS:
                     return _CLOCK_SKEW_HINT
