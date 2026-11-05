@@ -2,6 +2,8 @@
 
 An **unofficial**, type-safe Python client for the Prometheus APM (formerly AtonixOI) API.
 
+📖 **Documentation: <https://atonix.stimpert-labs.dev>**
+
 > [!IMPORTANT]
 > This is an independent community project. It is **not affiliated with, endorsed by, or supported by
 > Prometheus Group.** It is provided **"as is", without warranty of any kind — use at your own risk.**
