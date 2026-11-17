@@ -107,6 +107,7 @@ client = AtonixClient(api_key="YOUR_API_KEY_HERE")
 - `ATONIX_PRIVATE_KEY`: RSA private key **contents** (PEM format). Takes precedence over `ATONIX_PRIVATE_KEY_PATH`.
 - `ATONIX_PRIVATE_KEY_PATH`: Path to your private key file.
 - `ATONIX_PRIVATE_KEY_PASSWORD`: Password for an encrypted private key (optional).
+- `ATONIX_ENVIRONMENT`: Which API to target, used when `environment` is not passed. A hosted region name (`US`, `INDIA`; case-insensitive) or a base URL such as `https://apm.example.com` for an on-premises install. Defaults to `US`.
 - `ATONIX_LOG_PAYLOADS`: When set to `1`/`true`/`yes`/`on` (case-insensitive), full time-series API payloads are logged at DEBUG. Off by default — DEBUG logs only include short summaries (tag/point counts) so production logs don't fill up with raw process values.
 
 With all of these set, construction is simply:
@@ -116,6 +117,37 @@ from atonix import AtonixClient
 
 client = AtonixClient()
 ```
+
+#### Choosing an environment
+
+The client targets the hosted US region by default. The easiest way to point it somewhere
+else is the `ATONIX_ENVIRONMENT` environment variable, which takes a hosted region name or
+the base URL of any other deployment, such as an on-premises install:
+
+```bash
+export ATONIX_ENVIRONMENT=https://apm.example.com   # on-premises / custom URL
+# or
+export ATONIX_ENVIRONMENT=INDIA                     # hosted region
+```
+
+You can also set it in code with the `environment` argument, which takes precedence over the
+environment variable:
+
+```python
+from atonix import AtonixClient, AtonixEnvironment
+
+# Hosted regions
+client = AtonixClient(environment=AtonixEnvironment.US)  # default
+client = AtonixClient(environment=AtonixEnvironment.INDIA)
+
+# On-premises or other custom deployment
+client = AtonixClient(environment="https://apm.example.com")
+```
+
+Custom URLs must use `https://`. A trailing slash is ignored and a path prefix is kept
+(`https://apm.example.com/api` sends requests to `https://apm.example.com/api/v1/...`).
+Plain `http://` is refused unless you pass `allow_insecure=True`, which sends credentials
+unencrypted and is meant only for local testing.
 
 #### 3. Clock Synchronization
 
