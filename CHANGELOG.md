@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Python 3.14 is now tested in CI and listed in the package classifiers.
 
+### Changed
+- Internal: each resource's request logic (params, payloads, pagination, parsing) now lives in one
+  place shared by the sync and async classes, instead of being duplicated in each. The public API
+  and behavior of `AtonixClient` and `AsyncAtonixClient` are unchanged; a new parity test suite
+  checks that both send identical requests and return identical results. (#8)
+
 ## [0.8.0] - 2026-10-28
 
 ### Removed

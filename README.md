@@ -346,7 +346,7 @@ uv run pytest tests/
 ```
 
 ### Implementation Details
-The library relies on a `BaseResource` providing generic `_get_paginated` and `_get_single` methods, ensuring consistent behavior across all API areas. Authentication and request signing are handled centrally by the `Auth` class using `cryptography`.
+Each endpoint's request logic is written once as an I/O-free operation (or a `Pager` for paginated listings; see `atonix/base.py`); the sync and async resource classes only differ in how they execute it, so both clients behave identically. Authentication and request signing are handled centrally by the `Auth` class using `cryptography`.
 
 ## Contributing & Support
 

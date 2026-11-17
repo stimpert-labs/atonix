@@ -170,28 +170,50 @@ class TestMyFeature:
 
 ### Resource Classes
 
-- Inherit from `BaseResource`
-- Use `_get_paginated()` for paginated endpoints
-- Use `_get_single()` for single-item endpoints
-- Include comprehensive docstrings with Google-style formatting
+Every resource has a sync class (`Items`, inheriting `BaseResource`) and an async class
+(`AsyncItems`, inheriting `AsyncBaseResource`). Both are public and fully documented, but the
+request logic for each endpoint is written **once**, as a module-level helper both classes call:
+
+- Paginated endpoints: return a `Pager` (from `atonix.base`) describing the endpoint, result
+  model, and query params. The classes pass it to `self._iterate(...)`.
+- Everything else: write an *operation*, a generator typed `Op[T]` that does
+  `data = yield from call("POST", endpoint, json=...)` for each request it needs (or uses
+  `single(...)`, `find(...)`, `collect(...)`), then returns the parsed result. The classes pass it
+  to `self._run(...)`. Operations never perform I/O themselves, so they can't drift between the
+  sync and async paths.
+- Public methods should contain only the signature, a Google-style docstring, and a one-line body.
+  Paginated methods are plain `def`s on both classes (returning `Iterator[T]` / `AsyncIterator[T]`);
+  all others are `async def` on the async class.
+- Add a scenario for each new method to `tests/test_sync_async_parity.py`; it runs the method
+  through both clients and checks they send identical requests and return identical results.
 
 #### Example
 
 ```python
-def get_items(self, asset_id: str, skip: int = 0, take: int = 500) -> list[Item]:
-    """
-    Retrieve items for an asset.
+def _items(asset_id: str, skip: int, take: int) -> Pager[Item]:
+    return Pager("/v1/items", Item, params={"assetId": asset_id}, skip=skip, take=take)
 
-    Args:
-        asset_id: The unique identifier (GUID) of the asset.
-        skip: Number of items to skip for pagination.
-        take: Number of items to retrieve per page.
 
-    Returns:
-        A list of Item objects.
-    """
-    params = {"assetId": asset_id}
-    return self._get_paginated("/v1/items", Item, params=params, skip=skip, take=take)
+class Items(BaseResource):
+    def get_items(self, asset_id: str, skip: int = 0, take: int = 500) -> Iterator[Item]:
+        """
+        Retrieve items for an asset.
+
+        Args:
+            asset_id: The unique identifier (GUID) of the asset.
+            skip: Number of items to skip for pagination.
+            take: Number of items to retrieve per page.
+
+        Yields:
+            Item objects one by one.
+        """
+        return self._iterate(_items(asset_id, skip, take))
+
+
+class AsyncItems(AsyncBaseResource):
+    def get_items(self, asset_id: str, skip: int = 0, take: int = 500) -> AsyncIterator[Item]:
+        """...same docstring, with "Returns: An async iterator of Item objects."..."""
+        return self._iterate(_items(asset_id, skip, take))
 ```
 
 ---

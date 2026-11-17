@@ -7,9 +7,7 @@ from collections.abc import AsyncIterator, Iterator
 from datetime import datetime
 from typing import Any
 
-from atonix.base import AsyncBaseResource, BaseResource, _to_utc_ms_str
-from atonix.exceptions import APIError
-from atonix.object_models.common import APIResponse
+from atonix.base import AsyncBaseResource, BaseResource, Op, Pager, _first_result, _to_utc_ms_str, call, single
 from atonix.object_models.issues import (
     BareIssue,
     Issue,
@@ -28,6 +26,88 @@ logger = logging.getLogger(__name__)
 def _keywords_body(keywords: list[str | IssueKeyword]) -> list[dict[str, str]]:
     """Build the DELETE /keywords body: an array of IssueKeyword objects, per the spec."""
     return [{"KeywordDesc": kw.keyword_desc if isinstance(kw, IssueKeyword) else kw} for kw in keywords]
+
+
+# --- Shared request logic (used by both Issues and AsyncIssues) ---
+
+
+def _issues(
+    asset_id: str,
+    include_descendants: bool,
+    status: str | None,
+    changed_after: datetime | None,
+    changed_before: datetime | None,
+    skip: int,
+    take: int,
+) -> Pager[BareIssue]:
+    params: dict[str, Any] = {
+        "assetId": asset_id,
+        "includeDescendants": str(include_descendants).lower(),
+    }
+    if status:
+        params["status"] = status
+    if changed_after:
+        params["changedAfter"] = _to_utc_ms_str(changed_after)
+    if changed_before:
+        params["changedBefore"] = _to_utc_ms_str(changed_before)
+    return Pager("/v1/issues", BareIssue, params=params, skip=skip, take=take)
+
+
+def _issue(issue_id: str) -> Op[Issue]:
+    return single(f"/v1/issues/{issue_id}", Issue)
+
+
+def _create_issue(issue: IssueCreate) -> Op[Issue]:
+    logger.debug("Creating issue: %s", issue.title)
+    data = yield from call("POST", "/v1/issues", json=issue.model_dump(by_alias=True, exclude_none=True))
+    return _first_result(Issue, data, "Failed to retrieve created issue details from response")
+
+
+def _patch_issue(issue_id: str, patch: IssuePatch) -> Op[Issue]:
+    logger.debug("Patching issue %s", issue_id)
+    data = yield from call("PATCH", f"/v1/issues/{issue_id}", json=patch.model_dump(by_alias=True, exclude_none=True))
+    return _first_result(Issue, data, f"No result returned when patching issue {issue_id}")
+
+
+def _keywords(issue_id: str, skip: int, take: int) -> Pager[IssueKeyword]:
+    return Pager(f"/v1/issues/{issue_id}/keywords", IssueKeyword, skip=skip, take=take)
+
+
+def _add_keyword(issue_id: str, keyword_desc: str) -> Op[IssueKeyword]:
+    logger.debug("Adding keyword '%s' to issue %s", keyword_desc, issue_id)
+    data = yield from call("POST", f"/v1/issues/{issue_id}/keywords", json={"KeywordDesc": keyword_desc})
+    return _first_result(IssueKeyword, data, f"No result returned when adding keyword to issue {issue_id}")
+
+
+def _delete_keywords(issue_id: str, keywords: list[str | IssueKeyword]) -> Op[None]:
+    if not keywords:
+        return
+    body = _keywords_body(keywords)
+    logger.debug("Deleting keywords from issue %s: %s", issue_id, body)
+    yield from call("DELETE", f"/v1/issues/{issue_id}/keywords", json=body)
+
+
+def _create_discussion_entry(issue_id: str, entry: IssueDiscussionEntryCreate) -> Op[IssueDiscussionEntry]:
+    logger.debug("Creating discussion entry on issue %s: %s", issue_id, entry.title)
+    data = yield from call(
+        "POST",
+        f"/v1/issues/{issue_id}/discussionentries",
+        json=entry.model_dump(by_alias=True, exclude_none=True),
+    )
+    return _first_result(
+        IssueDiscussionEntry, data, f"No result returned when creating discussion entry on issue {issue_id}"
+    )
+
+
+def _discussion_entries(issue_id: str, skip: int, take: int) -> Pager[IssueDiscussionEntryDetails]:
+    return Pager(f"/v1/issues/{issue_id}/discussionentries", IssueDiscussionEntryDetails, skip=skip, take=take)
+
+
+def _resolution_statuses(category_id: int) -> Pager[IssueResolutionStatus]:
+    return Pager("/v1/issues/resolutionstatuses", IssueResolutionStatus, params={"categoryId": category_id})
+
+
+# --- Public resources ---
 
 
 class Issues(BaseResource):
@@ -58,18 +138,7 @@ class Issues(BaseResource):
         Yields:
             BareIssue objects one by one.
         """
-        params: dict[str, Any] = {
-            "assetId": asset_id,
-            "includeDescendants": str(include_descendants).lower(),
-        }
-        if status:
-            params["status"] = status
-        if changed_after:
-            params["changedAfter"] = _to_utc_ms_str(changed_after)
-        if changed_before:
-            params["changedBefore"] = _to_utc_ms_str(changed_before)
-
-        return self._get_paginated("/v1/issues", BareIssue, params=params, skip=skip, take=take)
+        return self._iterate(_issues(asset_id, include_descendants, status, changed_after, changed_before, skip, take))
 
     def get_issue(self, issue_id: str) -> Issue:
         """
@@ -81,7 +150,7 @@ class Issues(BaseResource):
         Returns:
             An Issue object.
         """
-        return self._get_single(f"/v1/issues/{issue_id}", Issue)
+        return self._run(_issue(issue_id))
 
     def create_issue(self, issue: IssueCreate) -> Issue:
         """
@@ -93,12 +162,7 @@ class Issues(BaseResource):
         Returns:
             The created Issue object (full details).
         """
-        logger.debug("Creating issue: %s", issue.title)
-        response_data = self._client.post("/v1/issues", json=issue.model_dump(by_alias=True, exclude_none=True))
-        response = APIResponse[Issue](**response_data)
-        if response.results:
-            return response.results[0]
-        raise APIError("Failed to retrieve created issue details from response")
+        return self._run(_create_issue(issue))
 
     def patch_issue(self, issue_id: str, patch: IssuePatch) -> Issue:
         """
@@ -111,15 +175,7 @@ class Issues(BaseResource):
         Returns:
             The updated Issue object.
         """
-        logger.debug("Patching issue %s", issue_id)
-        response_data = self._client.patch(
-            f"/v1/issues/{issue_id}",
-            json=patch.model_dump(by_alias=True, exclude_none=True),
-        )
-        response = APIResponse[Issue](**response_data)
-        if not response.results:
-            raise APIError(f"No result returned when patching issue {issue_id}")
-        return response.results[0]
+        return self._run(_patch_issue(issue_id, patch))
 
     def get_keywords(self, issue_id: str, skip: int = 0, take: int = 50) -> Iterator[IssueKeyword]:
         """
@@ -133,7 +189,7 @@ class Issues(BaseResource):
         Yields:
             IssueKeyword objects one by one.
         """
-        return self._get_paginated(f"/v1/issues/{issue_id}/keywords", IssueKeyword, skip=skip, take=take)
+        return self._iterate(_keywords(issue_id, skip, take))
 
     def add_keyword(self, issue_id: str, keyword_desc: str) -> IssueKeyword:
         """
@@ -146,12 +202,7 @@ class Issues(BaseResource):
         Returns:
             The created IssueKeyword object.
         """
-        logger.debug("Adding keyword '%s' to issue %s", keyword_desc, issue_id)
-        response_data = self._client.post(f"/v1/issues/{issue_id}/keywords", json={"KeywordDesc": keyword_desc})
-        response = APIResponse[IssueKeyword](**response_data)
-        if not response.results:
-            raise APIError(f"No result returned when adding keyword to issue {issue_id}")
-        return response.results[0]
+        return self._run(_add_keyword(issue_id, keyword_desc))
 
     def delete_keywords(self, issue_id: str, keywords: list[str | IssueKeyword]) -> None:
         """
@@ -165,11 +216,7 @@ class Issues(BaseResource):
             keywords: Keyword descriptions, or IssueKeyword objects (e.g. from
                 ``get_keywords``), to remove. An empty list sends no request.
         """
-        if not keywords:
-            return
-        body = _keywords_body(keywords)
-        logger.debug("Deleting keywords from issue %s: %s", issue_id, body)
-        self._client.delete(f"/v1/issues/{issue_id}/keywords", json=body)
+        self._run(_delete_keywords(issue_id, keywords))
 
     def create_discussion_entry(self, issue_id: str, entry: IssueDiscussionEntryCreate) -> IssueDiscussionEntry:
         """
@@ -183,15 +230,7 @@ class Issues(BaseResource):
             The created IssueDiscussionEntry. If ``entry.attachment_files`` was
             set, its ``attachment_uploads`` holds a temporary upload link per file.
         """
-        logger.debug("Creating discussion entry on issue %s: %s", issue_id, entry.title)
-        response_data = self._client.post(
-            f"/v1/issues/{issue_id}/discussionentries",
-            json=entry.model_dump(by_alias=True, exclude_none=True),
-        )
-        response = APIResponse[IssueDiscussionEntry](**response_data)
-        if not response.results:
-            raise APIError(f"No result returned when creating discussion entry on issue {issue_id}")
-        return response.results[0]
+        return self._run(_create_discussion_entry(issue_id, entry))
 
     def get_discussion_entries(
         self, issue_id: str, skip: int = 0, take: int = 50
@@ -207,12 +246,7 @@ class Issues(BaseResource):
         Yields:
             IssueDiscussionEntryDetails objects one by one.
         """
-        return self._get_paginated(
-            f"/v1/issues/{issue_id}/discussionentries",
-            IssueDiscussionEntryDetails,
-            skip=skip,
-            take=take,
-        )
+        return self._iterate(_discussion_entries(issue_id, skip, take))
 
     def get_resolution_statuses(self, category_id: int) -> Iterator[IssueResolutionStatus]:
         """
@@ -224,8 +258,7 @@ class Issues(BaseResource):
         Yields:
             IssueResolutionStatus objects one by one.
         """
-        params = {"categoryId": category_id}
-        return self._get_paginated("/v1/issues/resolutionstatuses", IssueResolutionStatus, params=params)
+        return self._iterate(_resolution_statuses(category_id))
 
 
 class AsyncIssues(AsyncBaseResource):
@@ -256,18 +289,7 @@ class AsyncIssues(AsyncBaseResource):
         Returns:
             An async iterator of BareIssue objects.
         """
-        params: dict[str, Any] = {
-            "assetId": asset_id,
-            "includeDescendants": str(include_descendants).lower(),
-        }
-        if status:
-            params["status"] = status
-        if changed_after:
-            params["changedAfter"] = _to_utc_ms_str(changed_after)
-        if changed_before:
-            params["changedBefore"] = _to_utc_ms_str(changed_before)
-
-        return self._get_paginated("/v1/issues", BareIssue, params=params, skip=skip, take=take)
+        return self._iterate(_issues(asset_id, include_descendants, status, changed_after, changed_before, skip, take))
 
     async def get_issue(self, issue_id: str) -> Issue:
         """
@@ -279,7 +301,7 @@ class AsyncIssues(AsyncBaseResource):
         Returns:
             An Issue object.
         """
-        return await self._get_single(f"/v1/issues/{issue_id}", Issue)
+        return await self._run(_issue(issue_id))
 
     async def create_issue(self, issue: IssueCreate) -> Issue:
         """
@@ -291,12 +313,7 @@ class AsyncIssues(AsyncBaseResource):
         Returns:
             The created Issue object (full details).
         """
-        logger.debug("Creating issue: %s", issue.title)
-        response_data = await self._client.post("/v1/issues", json=issue.model_dump(by_alias=True, exclude_none=True))
-        response = APIResponse[Issue](**response_data)
-        if response.results:
-            return response.results[0]
-        raise APIError("Failed to retrieve created issue details from response")
+        return await self._run(_create_issue(issue))
 
     async def patch_issue(self, issue_id: str, patch: IssuePatch) -> Issue:
         """
@@ -309,15 +326,7 @@ class AsyncIssues(AsyncBaseResource):
         Returns:
             The updated Issue object.
         """
-        logger.debug("Patching issue %s", issue_id)
-        response_data = await self._client.patch(
-            f"/v1/issues/{issue_id}",
-            json=patch.model_dump(by_alias=True, exclude_none=True),
-        )
-        response = APIResponse[Issue](**response_data)
-        if not response.results:
-            raise APIError(f"No result returned when patching issue {issue_id}")
-        return response.results[0]
+        return await self._run(_patch_issue(issue_id, patch))
 
     def get_keywords(self, issue_id: str, skip: int = 0, take: int = 50) -> AsyncIterator[IssueKeyword]:
         """
@@ -331,7 +340,7 @@ class AsyncIssues(AsyncBaseResource):
         Returns:
             An async iterator of IssueKeyword objects.
         """
-        return self._get_paginated(f"/v1/issues/{issue_id}/keywords", IssueKeyword, skip=skip, take=take)
+        return self._iterate(_keywords(issue_id, skip, take))
 
     async def add_keyword(self, issue_id: str, keyword_desc: str) -> IssueKeyword:
         """
@@ -344,12 +353,7 @@ class AsyncIssues(AsyncBaseResource):
         Returns:
             The created IssueKeyword object.
         """
-        logger.debug("Adding keyword '%s' to issue %s", keyword_desc, issue_id)
-        response_data = await self._client.post(f"/v1/issues/{issue_id}/keywords", json={"KeywordDesc": keyword_desc})
-        response = APIResponse[IssueKeyword](**response_data)
-        if not response.results:
-            raise APIError(f"No result returned when adding keyword to issue {issue_id}")
-        return response.results[0]
+        return await self._run(_add_keyword(issue_id, keyword_desc))
 
     async def delete_keywords(self, issue_id: str, keywords: list[str | IssueKeyword]) -> None:
         """
@@ -363,11 +367,7 @@ class AsyncIssues(AsyncBaseResource):
             keywords: Keyword descriptions, or IssueKeyword objects (e.g. from
                 ``get_keywords``), to remove. An empty list sends no request.
         """
-        if not keywords:
-            return
-        body = _keywords_body(keywords)
-        logger.debug("Deleting keywords from issue %s: %s", issue_id, body)
-        await self._client.delete(f"/v1/issues/{issue_id}/keywords", json=body)
+        await self._run(_delete_keywords(issue_id, keywords))
 
     async def create_discussion_entry(self, issue_id: str, entry: IssueDiscussionEntryCreate) -> IssueDiscussionEntry:
         """
@@ -381,15 +381,7 @@ class AsyncIssues(AsyncBaseResource):
             The created IssueDiscussionEntry. If ``entry.attachment_files`` was
             set, its ``attachment_uploads`` holds a temporary upload link per file.
         """
-        logger.debug("Creating discussion entry on issue %s: %s", issue_id, entry.title)
-        response_data = await self._client.post(
-            f"/v1/issues/{issue_id}/discussionentries",
-            json=entry.model_dump(by_alias=True, exclude_none=True),
-        )
-        response = APIResponse[IssueDiscussionEntry](**response_data)
-        if not response.results:
-            raise APIError(f"No result returned when creating discussion entry on issue {issue_id}")
-        return response.results[0]
+        return await self._run(_create_discussion_entry(issue_id, entry))
 
     def get_discussion_entries(
         self, issue_id: str, skip: int = 0, take: int = 50
@@ -405,12 +397,7 @@ class AsyncIssues(AsyncBaseResource):
         Returns:
             An async iterator of IssueDiscussionEntryDetails objects.
         """
-        return self._get_paginated(
-            f"/v1/issues/{issue_id}/discussionentries",
-            IssueDiscussionEntryDetails,
-            skip=skip,
-            take=take,
-        )
+        return self._iterate(_discussion_entries(issue_id, skip, take))
 
     def get_resolution_statuses(self, category_id: int) -> AsyncIterator[IssueResolutionStatus]:
         """
@@ -422,5 +409,4 @@ class AsyncIssues(AsyncBaseResource):
         Returns:
             An async iterator of IssueResolutionStatus objects.
         """
-        params = {"categoryId": category_id}
-        return self._get_paginated("/v1/issues/resolutionstatuses", IssueResolutionStatus, params=params)
+        return self._iterate(_resolution_statuses(category_id))

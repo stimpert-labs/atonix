@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Iterator
 from datetime import datetime
 from typing import Any
 
-from atonix.base import AsyncBaseResource, BaseResource, _to_utc_ms_str
+from atonix.base import AsyncBaseResource, BaseResource, Op, Pager, _to_utc_ms_str, call, collect, single
 from atonix.object_models.common import APIResponse
 from atonix.object_models.models import (
     Action,
@@ -18,6 +18,118 @@ from atonix.object_models.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# --- Shared request logic (used by both Models and AsyncModels) ---
+
+
+def _models(asset_id: str, include_descendants: bool, skip: int, take: int) -> Pager[Model]:
+    params = {
+        "assetId": asset_id,
+        "includeDescendants": str(include_descendants).lower(),
+    }
+    return Pager("/v1/models", Model, params=params, skip=skip, take=take)
+
+
+def _model_state(model_id: str) -> Op[AlertState]:
+    return single(f"/v1/models/{model_id}/state", AlertState)
+
+
+def _model_actions(
+    model_id: str,
+    changed_after: datetime | None,
+    changed_before: datetime | None,
+    skip: int = 0,
+    take: int = 500,
+) -> Pager[Action]:
+    params: dict[str, Any] = {}
+    if changed_after:
+        params["changedAfter"] = _to_utc_ms_str(changed_after)
+    if changed_before:
+        params["changedBefore"] = _to_utc_ms_str(changed_before)
+    return Pager(f"/v1/models/{model_id}/actions", Action, params=params, skip=skip, take=take)
+
+
+def _model_config(model_id: str) -> Op[ModelConfiguration | ExternalModelConfiguration]:
+    data = yield from call("GET", f"/v1/models/{model_id}/config")
+    # The response's Type decides which configuration model to parse into.
+    if data.get("Type", "ModelConfiguration") == "ExternalModelConfiguration":
+        return APIResponse[ExternalModelConfiguration](**data).results[0]
+    return APIResponse[ModelConfiguration](**data).results[0]
+
+
+def _model_states_by_asset(
+    asset_id: str, include_descendants: bool, include_inactive: bool, skip: int, take: int
+) -> Pager[AlertState]:
+    params = {
+        "assetId": asset_id,
+        "includeDescendants": str(include_descendants).lower(),
+        "includeInactive": str(include_inactive).lower(),
+    }
+    return Pager("/v1/models/state", AlertState, params=params, skip=skip, take=take)
+
+
+def _model_actions_by_asset(
+    asset_id: str,
+    changed_after: datetime,
+    changed_before: datetime,
+    favorite: bool,
+    include_descendants: bool,
+    skip: int,
+    take: int,
+) -> Pager[Action]:
+    params = {
+        "assetId": asset_id,
+        "changedAfter": _to_utc_ms_str(changed_after),
+        "changedBefore": _to_utc_ms_str(changed_before),
+    }
+    if favorite:
+        params["favorite"] = "true"
+    if include_descendants:
+        params["includeDescendants"] = "true"
+    return Pager("/v1/models/actions", Action, params=params, skip=skip, take=take)
+
+
+def _model(
+    model: str | Model,
+    include_config: bool,
+    include_state: bool,
+    include_actions: bool,
+    actions_changed_after: datetime | None,
+    actions_changed_before: datetime | None,
+) -> Op[Model]:
+    if isinstance(model, Model):
+        model_id = model.model_id
+        result_model = model.model_copy()
+    else:
+        model_id = model
+        result_model = Model(model_id=model_id)
+
+    # Each part is optional: a failure is logged and leaves that field unset.
+    if include_config:
+        try:
+            result_model.config = yield from _model_config(model_id)
+        except Exception as e:
+            logger.warning("Failed to fetch config for model %s: %s", model_id, e)
+
+    if include_state:
+        try:
+            result_model.alert_state = yield from _model_state(model_id)
+        except Exception as e:
+            logger.warning("Failed to fetch state for model %s: %s", model_id, e)
+
+    if include_actions:
+        try:
+            result_model.actions = yield from collect(
+                _model_actions(model_id, actions_changed_after, actions_changed_before)
+            )
+        except Exception as e:
+            logger.warning("Failed to fetch actions for model %s: %s", model_id, e)
+
+    return result_model
+
+
+# --- Public resources ---
 
 
 class Models(BaseResource):
@@ -38,11 +150,7 @@ class Models(BaseResource):
         Yields:
             Model objects one by one.
         """
-        params = {
-            "assetId": asset_id,
-            "includeDescendants": str(include_descendants).lower(),
-        }
-        return self._get_paginated("/v1/models", Model, params=params, skip=skip, take=take)
+        return self._iterate(_models(asset_id, include_descendants, skip, take))
 
     def get_model_state(self, model_id: str) -> AlertState:
         """
@@ -54,7 +162,7 @@ class Models(BaseResource):
         Returns:
             An AlertState object.
         """
-        return self._get_single(f"/v1/models/{model_id}/state", AlertState)
+        return self._run(_model_state(model_id))
 
     def get_model_actions(
         self,
@@ -77,13 +185,7 @@ class Models(BaseResource):
         Yields:
             Action objects one by one.
         """
-        params: dict[str, Any] = {}
-        if changed_after:
-            params["changedAfter"] = _to_utc_ms_str(changed_after)
-        if changed_before:
-            params["changedBefore"] = _to_utc_ms_str(changed_before)
-
-        return self._get_paginated(f"/v1/models/{model_id}/actions", Action, params=params, skip=skip, take=take)
+        return self._iterate(_model_actions(model_id, changed_after, changed_before, skip, take))
 
     def get_model_config(self, model_id: str) -> ModelConfiguration | ExternalModelConfiguration:
         """
@@ -98,15 +200,7 @@ class Models(BaseResource):
         Returns:
             ModelConfiguration or ExternalModelConfiguration.
         """
-        response_data = self._client.get(f"/v1/models/{model_id}/config")
-        # Check type to decide which model to use
-        raw_type = response_data.get("Type", "ModelConfiguration")
-        if raw_type == "ExternalModelConfiguration":
-            external_response = APIResponse[ExternalModelConfiguration](**response_data)
-            return external_response.results[0]
-        else:
-            standard_response = APIResponse[ModelConfiguration](**response_data)
-            return standard_response.results[0]
+        return self._run(_model_config(model_id))
 
     def get_model_states_by_asset(
         self,
@@ -129,12 +223,7 @@ class Models(BaseResource):
         Yields:
             AlertState objects one by one.
         """
-        params = {
-            "assetId": asset_id,
-            "includeDescendants": str(include_descendants).lower(),
-            "includeInactive": str(include_inactive).lower(),
-        }
-        return self._get_paginated("/v1/models/state", AlertState, params=params, skip=skip, take=take)
+        return self._iterate(_model_states_by_asset(asset_id, include_descendants, include_inactive, skip, take))
 
     def get_model_actions_by_asset(
         self,
@@ -161,17 +250,9 @@ class Models(BaseResource):
         Yields:
             Action objects one by one.
         """
-        params = {
-            "assetId": asset_id,
-            "changedAfter": _to_utc_ms_str(changed_after),
-            "changedBefore": _to_utc_ms_str(changed_before),
-        }
-
-        if favorite:
-            params["favorite"] = "true"
-        if include_descendants:
-            params["includeDescendants"] = "true"
-        return self._get_paginated("/v1/models/actions", Action, params=params, skip=skip, take=take)
+        return self._iterate(
+            _model_actions_by_asset(asset_id, changed_after, changed_before, favorite, include_descendants, skip, take)
+        )
 
     def get_model(
         self,
@@ -196,38 +277,9 @@ class Models(BaseResource):
         Returns:
             A Model object with the requested information populated.
         """
-        if isinstance(model, Model):
-            model_id = model.model_id
-            result_model = model.model_copy()
-        else:
-            model_id = model
-            result_model = Model(model_id=model_id)
-
-        if include_config:
-            try:
-                result_model.config = self.get_model_config(model_id)
-            except Exception as e:
-                logger.warning("Failed to fetch config for model %s: %s", model_id, e)
-
-        if include_state:
-            try:
-                result_model.alert_state = self.get_model_state(model_id)
-            except Exception as e:
-                logger.warning("Failed to fetch state for model %s: %s", model_id, e)
-
-        if include_actions:
-            try:
-                result_model.actions = list(
-                    self.get_model_actions(
-                        model_id,
-                        changed_after=actions_changed_after,
-                        changed_before=actions_changed_before,
-                    )
-                )
-            except Exception as e:
-                logger.warning("Failed to fetch actions for model %s: %s", model_id, e)
-
-        return result_model
+        return self._run(
+            _model(model, include_config, include_state, include_actions, actions_changed_after, actions_changed_before)
+        )
 
 
 class AsyncModels(AsyncBaseResource):
@@ -248,11 +300,7 @@ class AsyncModels(AsyncBaseResource):
         Returns:
             An async iterator of Model objects.
         """
-        params = {
-            "assetId": asset_id,
-            "includeDescendants": str(include_descendants).lower(),
-        }
-        return self._get_paginated("/v1/models", Model, params=params, skip=skip, take=take)
+        return self._iterate(_models(asset_id, include_descendants, skip, take))
 
     async def get_model_state(self, model_id: str) -> AlertState:
         """
@@ -264,7 +312,7 @@ class AsyncModels(AsyncBaseResource):
         Returns:
             An AlertState object.
         """
-        return await self._get_single(f"/v1/models/{model_id}/state", AlertState)
+        return await self._run(_model_state(model_id))
 
     def get_model_actions(
         self,
@@ -287,13 +335,7 @@ class AsyncModels(AsyncBaseResource):
         Returns:
             An async iterator of Action objects.
         """
-        params: dict[str, Any] = {}
-        if changed_after:
-            params["changedAfter"] = _to_utc_ms_str(changed_after)
-        if changed_before:
-            params["changedBefore"] = _to_utc_ms_str(changed_before)
-
-        return self._get_paginated(f"/v1/models/{model_id}/actions", Action, params=params, skip=skip, take=take)
+        return self._iterate(_model_actions(model_id, changed_after, changed_before, skip, take))
 
     async def get_model_config(self, model_id: str) -> ModelConfiguration | ExternalModelConfiguration:
         """
@@ -308,14 +350,7 @@ class AsyncModels(AsyncBaseResource):
         Returns:
             ModelConfiguration or ExternalModelConfiguration.
         """
-        response_data = await self._client.get(f"/v1/models/{model_id}/config")
-        raw_type = response_data.get("Type", "ModelConfiguration")
-        if raw_type == "ExternalModelConfiguration":
-            external_response = APIResponse[ExternalModelConfiguration](**response_data)
-            return external_response.results[0]
-        else:
-            standard_response = APIResponse[ModelConfiguration](**response_data)
-            return standard_response.results[0]
+        return await self._run(_model_config(model_id))
 
     def get_model_states_by_asset(
         self,
@@ -338,12 +373,7 @@ class AsyncModels(AsyncBaseResource):
         Returns:
             An async iterator of AlertState objects.
         """
-        params = {
-            "assetId": asset_id,
-            "includeDescendants": str(include_descendants).lower(),
-            "includeInactive": str(include_inactive).lower(),
-        }
-        return self._get_paginated("/v1/models/state", AlertState, params=params, skip=skip, take=take)
+        return self._iterate(_model_states_by_asset(asset_id, include_descendants, include_inactive, skip, take))
 
     def get_model_actions_by_asset(
         self,
@@ -370,17 +400,9 @@ class AsyncModels(AsyncBaseResource):
         Returns:
             An async iterator of Action objects.
         """
-        params = {
-            "assetId": asset_id,
-            "changedAfter": _to_utc_ms_str(changed_after),
-            "changedBefore": _to_utc_ms_str(changed_before),
-        }
-
-        if favorite:
-            params["favorite"] = "true"
-        if include_descendants:
-            params["includeDescendants"] = "true"
-        return self._get_paginated("/v1/models/actions", Action, params=params, skip=skip, take=take)
+        return self._iterate(
+            _model_actions_by_asset(asset_id, changed_after, changed_before, favorite, include_descendants, skip, take)
+        )
 
     async def get_model(
         self,
@@ -405,36 +427,6 @@ class AsyncModels(AsyncBaseResource):
         Returns:
             A Model object with the requested information populated.
         """
-        if isinstance(model, Model):
-            model_id = model.model_id
-            result_model = model.model_copy()
-        else:
-            model_id = model
-            result_model = Model(model_id=model_id)
-
-        if include_config:
-            try:
-                result_model.config = await self.get_model_config(model_id)
-            except Exception as e:
-                logger.warning("Failed to fetch config for model %s: %s", model_id, e)
-
-        if include_state:
-            try:
-                result_model.alert_state = await self.get_model_state(model_id)
-            except Exception as e:
-                logger.warning("Failed to fetch state for model %s: %s", model_id, e)
-
-        if include_actions:
-            try:
-                actions = []
-                async for action in self.get_model_actions(
-                    model_id,
-                    changed_after=actions_changed_after,
-                    changed_before=actions_changed_before,
-                ):
-                    actions.append(action)
-                result_model.actions = actions
-            except Exception as e:
-                logger.warning("Failed to fetch actions for model %s: %s", model_id, e)
-
-        return result_model
+        return await self._run(
+            _model(model, include_config, include_state, include_actions, actions_changed_after, actions_changed_before)
+        )
