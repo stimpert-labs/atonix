@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import ssl
 import time
 from base64 import b64encode
 from datetime import UTC
@@ -284,6 +285,69 @@ def _validate_base_url(base_url: str, allow_insecure: bool) -> None:
         logger.warning("Using insecure environment URL %s; requests will not be encrypted.", base_url)
 
 
+CertTypes = str | tuple[str, str] | tuple[str, str, str]
+"""A client certificate: a PEM path holding cert and key, ``(certfile, keyfile)``, or
+``(certfile, keyfile, password)``."""
+
+
+def _build_verify(verify: ssl.SSLContext | str | bool, cert: CertTypes | None) -> ssl.SSLContext | bool:
+    """Resolve the user's TLS options into the ``verify`` value for httpx.
+
+    ``True``/``False``/an ``SSLContext`` pass through untouched when no client
+    certificate is given, so httpx keeps its defaults (including ``SSL_CERT_FILE``
+    and ``SSL_CERT_DIR``). A CA bundle path or a client certificate is turned into
+    an ``SSLContext`` here, since httpx deprecates passing either one directly.
+    """
+    if isinstance(verify, ssl.SSLContext):
+        if cert is not None:
+            raise ValueError("Pass cert= or an ssl.SSLContext as verify=, not both; load the cert into the context")
+        return verify
+    if isinstance(verify, bool):
+        if cert is None:
+            return verify
+        ctx = httpx.create_ssl_context(verify=verify)
+    elif isinstance(verify, (str, os.PathLike)):
+        path = os.fspath(verify)
+        if os.path.isdir(path):
+            ctx = ssl.create_default_context(capath=path)
+        elif os.path.isfile(path):
+            ctx = ssl.create_default_context(cafile=path)
+        else:
+            raise ValueError(f"verify path does not exist: {path!r}")
+    else:
+        raise TypeError("verify must be a bool, a CA bundle path, or an ssl.SSLContext")
+
+    if cert is not None:
+        if isinstance(cert, (str, os.PathLike)):
+            ctx.load_cert_chain(certfile=os.fspath(cert))
+        elif len(cert) == 2:
+            ctx.load_cert_chain(certfile=cert[0], keyfile=cert[1])
+        else:
+            ctx.load_cert_chain(certfile=cert[0], keyfile=cert[1], password=cert[2])
+    return ctx
+
+
+# Arguments the clients expose by name; passing them through httpx_kwargs would be ambiguous.
+_NAMED_CLIENT_ARGS = frozenset({"timeout", "verify", "cert", "proxy", "headers"})
+
+
+def _build_client_kwargs(
+    timeout: float,
+    verify: ssl.SSLContext | bool,
+    proxy: str | httpx.URL | httpx.Proxy | None,
+    headers: dict[str, str] | None,
+    httpx_kwargs: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Assemble the keyword arguments for ``httpx.Client`` / ``httpx.AsyncClient``."""
+    extra = dict(httpx_kwargs or {})
+    clashes = sorted(_NAMED_CLIENT_ARGS & extra.keys())
+    if clashes:
+        raise ValueError(f"Pass {', '.join(clashes)} as named client arguments, not in httpx_kwargs")
+    kwargs: dict[str, Any] = {"timeout": timeout, "verify": verify, "proxy": proxy, "headers": headers}
+    kwargs.update(extra)
+    return kwargs
+
+
 class _BaseAtonixClient:
     """Shared credential resolution and request handling for Atonix clients."""
 
@@ -296,6 +360,11 @@ class _BaseAtonixClient:
         timeout: float = 30.0,
         max_retries: int = 3,
         allow_insecure: bool = False,
+        verify: ssl.SSLContext | str | bool = True,
+        cert: CertTypes | None = None,
+        proxy: str | httpx.URL | httpx.Proxy | None = None,
+        headers: dict[str, str] | None = None,
+        httpx_kwargs: dict[str, Any] | None = None,
     ):
         api_key = api_key or os.environ.get("ATONIX_API_KEY")
         if not api_key:
@@ -329,6 +398,8 @@ class _BaseAtonixClient:
 
         self._max_retries = max_retries
         self._auth = Auth(api_key, private_key)
+        self._verify = _build_verify(verify, cert)
+        self._client_kwargs = _build_client_kwargs(timeout, self._verify, proxy, headers, httpx_kwargs)
 
     def _prepare_request(
         self,
@@ -442,6 +513,11 @@ class AtonixClient(_BaseAtonixClient):
         timeout: float = 30.0,
         max_retries: int = 3,
         allow_insecure: bool = False,
+        verify: ssl.SSLContext | str | bool = True,
+        cert: CertTypes | None = None,
+        proxy: str | httpx.URL | httpx.Proxy | None = None,
+        headers: dict[str, str] | None = None,
+        httpx_kwargs: dict[str, Any] | None = None,
     ):
         """
         Initialize the Atonix Client.
@@ -456,10 +532,38 @@ class AtonixClient(_BaseAtonixClient):
                 ``0`` or ``1`` disables retries; every request is always attempted at least once.
             allow_insecure: Permit a plain ``http://`` custom environment URL. Only
                 intended for local testing; credentials are sent unencrypted.
+            verify: TLS server verification. ``True`` (default) uses the certifi CA bundle
+                (or ``SSL_CERT_FILE``/``SSL_CERT_DIR``), a path uses that CA file or directory
+                (e.g. a corporate proxy's root CA), an ``ssl.SSLContext`` is used as-is (for
+                pinning or custom policies), and ``False`` disables verification (unsafe).
+            cert: Client certificate for mutual TLS: a PEM path with cert and key,
+                ``(certfile, keyfile)``, or ``(certfile, keyfile, password)``. With an
+                ``ssl.SSLContext`` as ``verify``, load the certificate into the context instead.
+            proxy: Proxy URL for all requests, e.g. ``"http://proxy.corp:8080"`` (credentials
+                can go in the URL), or an ``httpx.Proxy``. When unset, the standard proxy
+                environment variables (``HTTPS_PROXY``, ``NO_PROXY``, ...) are honored, and on
+                Windows and macOS the system proxy settings.
+            headers: Extra headers sent with every request, e.g. ``{"User-Agent": "my-app/1.0"}``.
+                They can't replace the Atonix auth headers.
+            httpx_kwargs: Any other ``httpx.Client`` arguments, passed through as-is (for example
+                ``limits``, ``http2``, ``event_hooks``, ``mounts``, ``transport``, or
+                ``trust_env=False`` to ignore proxy and CA settings from the environment).
         """
-        super().__init__(api_key, private_key, private_key_password, environment, timeout, max_retries, allow_insecure)
-        transport = httpx.HTTPTransport(retries=0)
-        self._client = httpx.Client(timeout=timeout, transport=transport)
+        super().__init__(
+            api_key,
+            private_key,
+            private_key_password,
+            environment,
+            timeout,
+            max_retries,
+            allow_insecure=allow_insecure,
+            verify=verify,
+            cert=cert,
+            proxy=proxy,
+            headers=headers,
+            httpx_kwargs=httpx_kwargs,
+        )
+        self._client = httpx.Client(**self._client_kwargs)
 
         self.assets = Assets(self)
         self.issues = Issues(self)
@@ -575,6 +679,11 @@ class AsyncAtonixClient(_BaseAtonixClient):
         timeout: float = 30.0,
         max_retries: int = 3,
         allow_insecure: bool = False,
+        verify: ssl.SSLContext | str | bool = True,
+        cert: CertTypes | None = None,
+        proxy: str | httpx.URL | httpx.Proxy | None = None,
+        headers: dict[str, str] | None = None,
+        httpx_kwargs: dict[str, Any] | None = None,
     ):
         """
         Initialize the async Atonix Client.
@@ -589,10 +698,38 @@ class AsyncAtonixClient(_BaseAtonixClient):
                 ``0`` or ``1`` disables retries; every request is always attempted at least once.
             allow_insecure: Permit a plain ``http://`` custom environment URL. Only
                 intended for local testing; credentials are sent unencrypted.
+            verify: TLS server verification. ``True`` (default) uses the certifi CA bundle
+                (or ``SSL_CERT_FILE``/``SSL_CERT_DIR``), a path uses that CA file or directory
+                (e.g. a corporate proxy's root CA), an ``ssl.SSLContext`` is used as-is (for
+                pinning or custom policies), and ``False`` disables verification (unsafe).
+            cert: Client certificate for mutual TLS: a PEM path with cert and key,
+                ``(certfile, keyfile)``, or ``(certfile, keyfile, password)``. With an
+                ``ssl.SSLContext`` as ``verify``, load the certificate into the context instead.
+            proxy: Proxy URL for all requests, e.g. ``"http://proxy.corp:8080"`` (credentials
+                can go in the URL), or an ``httpx.Proxy``. When unset, the standard proxy
+                environment variables (``HTTPS_PROXY``, ``NO_PROXY``, ...) are honored, and on
+                Windows and macOS the system proxy settings.
+            headers: Extra headers sent with every request, e.g. ``{"User-Agent": "my-app/1.0"}``.
+                They can't replace the Atonix auth headers.
+            httpx_kwargs: Any other ``httpx.Client`` arguments, passed through as-is (for example
+                ``limits``, ``http2``, ``event_hooks``, ``mounts``, ``transport``, or
+                ``trust_env=False`` to ignore proxy and CA settings from the environment).
         """
-        super().__init__(api_key, private_key, private_key_password, environment, timeout, max_retries, allow_insecure)
-        transport = httpx.AsyncHTTPTransport(retries=0)
-        self._client = httpx.AsyncClient(timeout=timeout, transport=transport)
+        super().__init__(
+            api_key,
+            private_key,
+            private_key_password,
+            environment,
+            timeout,
+            max_retries,
+            allow_insecure=allow_insecure,
+            verify=verify,
+            cert=cert,
+            proxy=proxy,
+            headers=headers,
+            httpx_kwargs=httpx_kwargs,
+        )
+        self._client = httpx.AsyncClient(**self._client_kwargs)
 
         self.assets = AsyncAssets(self)
         self.issues = AsyncIssues(self)

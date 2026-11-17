@@ -84,12 +84,99 @@ With everything set, construction is just `AtonixClient()`.
 | `timeout`     | `30.0`                   | Per-request timeout in seconds.                                             |
 | `max_retries` | `3`                      | Max attempts per request for 429, 5xx, and network errors (min. 1 attempt). |
 | `allow_insecure` | `False`               | Allow a plain `http://` custom URL (local testing only). By default only `https://` is accepted. |
+| `verify`      | `True`                   | TLS server verification: `True`, a CA bundle path, an `ssl.SSLContext`, or `False`. See [TLS](#tls). |
+| `cert`        | `None`                   | Client certificate for mutual TLS. See [TLS](#tls).                         |
+| `proxy`       | `None`                   | Proxy URL or `httpx.Proxy`. See [Proxies](#proxies).                        |
+| `headers`     | `None`                   | Extra headers sent with every request, such as `User-Agent`.                |
+| `httpx_kwargs`| `None`                   | Any other `httpx.Client` arguments. See [Other httpx options](#other-httpx-options). |
 
 ```python
 from atonix import AtonixClient, AtonixEnvironment
 
 client = AtonixClient(environment=AtonixEnvironment.INDIA, timeout=60, max_retries=5)
 ```
+
+## TLS
+
+By default the client verifies the server against the certifi CA bundle, or against
+`SSL_CERT_FILE` / `SSL_CERT_DIR` when those are set. Use `verify` to change that.
+
+If you're behind a corporate proxy that re-signs HTTPS traffic, trust its root CA:
+
+```python
+client = AtonixClient(verify="/etc/ssl/certs/corp-root-ca.pem")  # a CA file or a directory of CAs
+```
+
+For full control, such as trusting only a specific certificate or setting a minimum TLS version,
+pass your own `ssl.SSLContext`. The client uses it exactly as given:
+
+```python
+import ssl
+
+ctx = ssl.create_default_context(cafile="/path/to/pinned-ca.pem")
+ctx.minimum_version = ssl.TLSVersion.TLSv1_3
+client = AtonixClient(verify=ctx)
+```
+
+For mutual TLS, pass `cert` as a PEM file with both certificate and key, as
+`(certfile, keyfile)`, or as `(certfile, keyfile, password)`. If you pass an `ssl.SSLContext`,
+load the certificate into it with `ctx.load_cert_chain(...)` instead; combining the two raises
+`ValueError`.
+
+`verify=False` turns off certificate checks entirely. Use it only for local debugging: it
+leaves your signed requests open to interception.
+
+The same options work on `AsyncAtonixClient`.
+
+## Proxies
+
+The client uses the standard proxy environment variables (`HTTPS_PROXY`, `HTTP_PROXY`,
+`ALL_PROXY`, and `NO_PROXY`), and on Windows and macOS falls back to the system proxy settings, so
+often there's nothing to configure. To set a proxy in code, use `proxy`. It overrides the
+environment:
+
+```python
+client = AtonixClient(proxy="http://proxy.corp:8080")
+client = AtonixClient(proxy="http://user:password@proxy.corp:8080")  # with proxy credentials
+```
+
+If the proxy re-signs HTTPS traffic, also pass its root CA as `verify` (see [TLS](#tls)). The
+`verify` and `cert` settings apply to connections through the proxy too.
+
+To ignore the environment and system proxy settings, pass `httpx_kwargs={"trust_env": False}`. This also makes
+the client ignore `SSL_CERT_FILE` and `SSL_CERT_DIR`.
+
+## Default headers
+
+`headers` adds headers to every request, for example to identify your application:
+
+```python
+client = AtonixClient(headers={"User-Agent": "plant-dashboard/2.1"})
+```
+
+Headers passed to a single call (`client.get(..., headers=...)`) take precedence over these.
+The Atonix auth headers are always set by the client and can't be replaced this way.
+
+## Other httpx options
+
+`httpx_kwargs` passes any other argument straight to the underlying `httpx.Client` (or
+`httpx.AsyncClient`): connection `limits`, `http2=True` (needs the `h2` package),
+`event_hooks`, `mounts`, a custom `transport`, and so on.
+
+```python
+import httpx
+
+client = AtonixClient(
+    httpx_kwargs={
+        "limits": httpx.Limits(max_connections=20),
+        "event_hooks": {"request": [lambda request: print(request.method, request.url)]},
+    }
+)
+```
+
+Options the client takes by name (`timeout`, `verify`, `cert`, `proxy`, `headers`) can't go in
+`httpx_kwargs`; that raises `ValueError`. A custom `transport` replaces httpx's own, so `verify`,
+`cert`, and `proxy` no longer apply to it.
 
 ## Clock synchronization
 
