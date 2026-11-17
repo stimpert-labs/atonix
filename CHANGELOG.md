@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   other deployment, such as an on-premises install. The `environment` argument now also accepts a
   region name string (e.g. `"india"`). (#22)
 - Documentation for custom and on-premises base URLs in the README and the authentication guide. (#22)
+- `AtonixClient` and `AsyncAtonixClient` take `verify` and `cert` arguments for TLS. `verify`
+  accepts `True`, a CA bundle file or directory (for example a corporate proxy's root CA), an
+  `ssl.SSLContext` (for pinning or a custom TLS policy), or `False`. `cert` sets a client
+  certificate for mutual TLS. (#11)
+- Both clients take `proxy` (a proxy URL or `httpx.Proxy`), `headers` (sent with every request,
+  for example a custom `User-Agent`), and `httpx_kwargs`, which passes any other argument through
+  to the underlying httpx client (`limits`, `http2`, `event_hooks`, `transport`, ...). (#10)
 
 ### Changed
 - Internal: each resource's request logic (params, payloads, pagination, parsing) now lives in one
@@ -23,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `environment` argument of `AtonixClient` and `AsyncAtonixClient` now defaults to `None`
   (resolved from `ATONIX_ENVIRONMENT`, then US) instead of `AtonixEnvironment.US`. Behavior is
   unchanged unless the variable is set. (#22)
+- The clients now use the proxy configured in the environment, like httpx does by default:
+  `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, and `NO_PROXY`, and on Windows and macOS the system
+  proxy settings. Before, these were silently ignored. If a proxy is configured where you run
+  atonix, requests now go through it; pass `httpx_kwargs={"trust_env": False}` to keep the old
+  behavior. (#10)
 
 ## [0.8.0] - 2026-10-28
 
