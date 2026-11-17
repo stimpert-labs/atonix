@@ -397,7 +397,9 @@ We follow [Semantic Versioning](https://semver.org/). While we're on `0.x`:
 - **Patch** (`0.6.0` → `0.6.1`): bug fixes and security fixes only.
 - **Minor** (`0.6.0` → `0.7.0`): new features, *and* any breaking change.
   Breaking changes must be called out in the changelog. Users should pin
-  `atonix~=0.6` to get fixes without breaking changes.
+  `atonix~=0.6.0` (same as `>=0.6.0,<0.7`) to get fixes without breaking
+  changes. Note the third component: `~=0.6` means `>=0.6,<1.0`, which
+  also allows 0.7 and later minors.
 - **Major** (`1.0.0`): once the public API has gone through a few minor
   releases without breaking changes.
 
