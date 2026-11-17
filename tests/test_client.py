@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from httpx import Response
 
-from atonix.client import AsyncAtonixClient, AtonixClient, Auth, _parse_private_key
+from atonix.client import AsyncAtonixClient, AtonixClient, AtonixEnvironment, Auth, _parse_private_key
 from atonix.exceptions import (
     APIError,
     AuthenticationError,
@@ -216,6 +216,77 @@ class TestAtonixClient:
             api_key="testkey", private_key=mock_private_key, environment="https://custom.example.com/"
         )
         assert client._base_url == "https://custom.example.com"
+
+    @respx.mock
+    @pytest.mark.parametrize("environment", ["https://apm.example.com", "https://apm.example.com/api/"])
+    def test_requests_go_to_custom_url(self, mock_private_key, environment):
+        """Requests should target an on-prem/custom base URL, keeping any path prefix."""
+        expected = environment.rstrip("/")
+        route = respx.get(f"{expected}/v1/assets").mock(return_value=Response(200, json=make_api_response([])))
+        client = AtonixClient(api_key="testkey", private_key=mock_private_key, environment=environment)
+
+        client.get("/v1/assets")
+
+        assert route.called
+        assert str(route.calls.last.request.url) == f"{expected}/v1/assets"
+
+    @pytest.mark.anyio
+    @respx.mock
+    async def test_async_requests_go_to_custom_url(self, mock_private_key):
+        """AsyncAtonixClient should also target a custom base URL."""
+        route = respx.get("https://apm.example.com/api/v1/assets").mock(
+            return_value=Response(200, json=make_api_response([]))
+        )
+        async with AsyncAtonixClient(
+            api_key="testkey", private_key=mock_private_key, environment="https://apm.example.com/api"
+        ) as client:
+            await client.get("/v1/assets")
+
+        assert route.called
+
+    def test_environment_defaults_to_us(self, mock_private_key):
+        """With no argument and no ATONIX_ENVIRONMENT, the client targets US."""
+        client = AtonixClient(api_key="testkey", private_key=mock_private_key)
+        assert client._base_url == "https://api-us.pgapm.io"
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("https://apm.example.com/", "https://apm.example.com"),
+            ("https://apm.example.com/api", "https://apm.example.com/api"),
+            ("INDIA", "https://api-in.pgapm.io"),
+            (" india ", "https://api-in.pgapm.io"),
+            ("", "https://api-us.pgapm.io"),
+        ],
+    )
+    def test_environment_from_env_var(self, monkeypatch, mock_private_key, value, expected):
+        """ATONIX_ENVIRONMENT accepts a URL or a hosted region name; blank falls back to US."""
+        monkeypatch.setenv("ATONIX_ENVIRONMENT", value)
+        client = AtonixClient(api_key="testkey", private_key=mock_private_key)
+        assert client._base_url == expected
+
+    def test_environment_argument_overrides_env_var(self, monkeypatch, mock_private_key):
+        """An explicit environment argument wins over ATONIX_ENVIRONMENT."""
+        monkeypatch.setenv("ATONIX_ENVIRONMENT", "https://apm.example.com")
+        client = AtonixClient(api_key="testkey", private_key=mock_private_key, environment=AtonixEnvironment.INDIA)
+        assert client._base_url == "https://api-in.pgapm.io"
+
+    def test_environment_argument_accepts_region_name(self, mock_private_key):
+        """A region name string passed as the argument resolves to that region's URL."""
+        client = AtonixClient(api_key="testkey", private_key=mock_private_key, environment="india")
+        assert client._base_url == "https://api-in.pgapm.io"
+
+    def test_env_var_http_url_is_refused(self, monkeypatch, mock_private_key):
+        """An http:// URL from ATONIX_ENVIRONMENT gets the same HTTPS check as the argument."""
+        monkeypatch.setenv("ATONIX_ENVIRONMENT", "http://apm.example.com")
+        with pytest.raises(ValueError, match="allow_insecure"):
+            AtonixClient(api_key="testkey", private_key=mock_private_key)
+
+    def test_async_environment_from_env_var(self, monkeypatch, mock_private_key):
+        """AsyncAtonixClient also reads ATONIX_ENVIRONMENT."""
+        monkeypatch.setenv("ATONIX_ENVIRONMENT", "https://apm.example.com")
+        client = AsyncAtonixClient(api_key="testkey", private_key=mock_private_key)
+        assert client._base_url == "https://apm.example.com"
 
     @pytest.mark.parametrize("url", ["http://custom.example.com", "HTTP://custom.example.com"])
     def test_init_rejects_http_url(self, mock_private_key, url):

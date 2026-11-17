@@ -35,7 +35,13 @@ from atonix.processdata import AsyncProcessData, ProcessData
 
 
 class AtonixEnvironment(str, Enum):  # noqa: UP042  # StrEnum would change str() output
-    """Available Atonix API environments."""
+    """Hosted Atonix API environments.
+
+    These are the regions Prometheus Group hosts. For any other deployment, such as an
+    on-premises install, pass its base URL as a string instead, e.g.
+    ``AtonixClient(environment="https://apm.example.com")``, or set the
+    ``ATONIX_ENVIRONMENT`` environment variable to that URL.
+    """
 
     US = "https://api-us.pgapm.io"
     INDIA = "https://api-in.pgapm.io"
@@ -285,6 +291,24 @@ def _validate_base_url(base_url: str, allow_insecure: bool) -> None:
         logger.warning("Using insecure environment URL %s; requests will not be encrypted.", base_url)
 
 
+def _resolve_base_url(environment: AtonixEnvironment | str | None) -> str:
+    """Turn an ``environment`` argument into a base URL without a trailing slash.
+
+    Resolution order: the explicit argument, then the ``ATONIX_ENVIRONMENT`` env var,
+    then ``AtonixEnvironment.US``. A string may be a hosted region name (``"US"``,
+    ``"india"``; case-insensitive) or a base URL.
+    """
+    if environment is None:
+        environment = os.environ.get("ATONIX_ENVIRONMENT", "").strip() or AtonixEnvironment.US
+    if isinstance(environment, AtonixEnvironment):
+        return environment.value.rstrip("/")
+    value = str(environment).strip()
+    member = AtonixEnvironment.__members__.get(value.upper())
+    if member is not None:
+        return member.value.rstrip("/")
+    return value.rstrip("/")
+
+
 CertTypes = str | tuple[str, str] | tuple[str, str, str]
 """A client certificate: a PEM path holding cert and key, ``(certfile, keyfile)``, or
 ``(certfile, keyfile, password)``."""
@@ -356,7 +380,7 @@ class _BaseAtonixClient:
         api_key: str | None = None,
         private_key: rsa.RSAPrivateKey | None = None,
         private_key_password: str | None = None,
-        environment: AtonixEnvironment | str = AtonixEnvironment.US,
+        environment: AtonixEnvironment | str | None = None,
         timeout: float = 30.0,
         max_retries: int = 3,
         allow_insecure: bool = False,
@@ -387,10 +411,7 @@ class _BaseAtonixClient:
                         "or ATONIX_PRIVATE_KEY_PATH (file path) must be set."
                     )
 
-        if isinstance(environment, AtonixEnvironment):
-            self._base_url = environment.value.rstrip("/")
-        else:
-            self._base_url = str(environment).rstrip("/")
+        self._base_url = _resolve_base_url(environment)
         _validate_base_url(self._base_url, allow_insecure)
 
         if max_retries < 0:
@@ -509,7 +530,7 @@ class AtonixClient(_BaseAtonixClient):
         api_key: str | None = None,
         private_key: rsa.RSAPrivateKey | None = None,
         private_key_password: str | None = None,
-        environment: AtonixEnvironment | str = AtonixEnvironment.US,
+        environment: AtonixEnvironment | str | None = None,
         timeout: float = 30.0,
         max_retries: int = 3,
         allow_insecure: bool = False,
@@ -526,7 +547,10 @@ class AtonixClient(_BaseAtonixClient):
             api_key: API Key (defaults to ATONIX_API_KEY env var).
             private_key: RSA Private Key (defaults to loading from ATONIX_PRIVATE_KEY_PATH).
             private_key_password: Password for encrypted private key (defaults to ATONIX_PRIVATE_KEY_PASSWORD env var).
-            environment: API target environment or custom URL.
+            environment: A hosted ``AtonixEnvironment`` (or its name, e.g. ``"INDIA"``), or
+                the base URL of any other deployment (e.g. an on-premises install) as an
+                ``https://`` string. A trailing slash is ignored; a path prefix is kept.
+                Defaults to the ATONIX_ENVIRONMENT env var, then ``AtonixEnvironment.US``.
             timeout: Request timeout in seconds.
             max_retries: Maximum attempts per request for transient errors (429, 5xx, network).
                 ``0`` or ``1`` disables retries; every request is always attempted at least once.
@@ -675,7 +699,7 @@ class AsyncAtonixClient(_BaseAtonixClient):
         api_key: str | None = None,
         private_key: rsa.RSAPrivateKey | None = None,
         private_key_password: str | None = None,
-        environment: AtonixEnvironment | str = AtonixEnvironment.US,
+        environment: AtonixEnvironment | str | None = None,
         timeout: float = 30.0,
         max_retries: int = 3,
         allow_insecure: bool = False,
@@ -692,7 +716,10 @@ class AsyncAtonixClient(_BaseAtonixClient):
             api_key: API Key (defaults to ATONIX_API_KEY env var).
             private_key: RSA Private Key (defaults to loading from ATONIX_PRIVATE_KEY_PATH).
             private_key_password: Password for encrypted private key (defaults to ATONIX_PRIVATE_KEY_PASSWORD env var).
-            environment: API target environment or custom URL.
+            environment: A hosted ``AtonixEnvironment`` (or its name, e.g. ``"INDIA"``), or
+                the base URL of any other deployment (e.g. an on-premises install) as an
+                ``https://`` string. A trailing slash is ignored; a path prefix is kept.
+                Defaults to the ATONIX_ENVIRONMENT env var, then ``AtonixEnvironment.US``.
             timeout: Request timeout in seconds.
             max_retries: Maximum attempts per request for transient errors (429, 5xx, network).
                 ``0`` or ``1`` disables retries; every request is always attempted at least once.

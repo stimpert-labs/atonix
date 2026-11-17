@@ -8,7 +8,7 @@ import pytest
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 
-from atonix.client import AtonixClient, AtonixEnvironment
+from atonix.client import AtonixClient
 
 
 def _load_private_key(path: str):
@@ -38,18 +38,13 @@ def private_key():
 
 
 @pytest.fixture(scope="session")
-def atonix_environment():
-    """Get environment from environment variable, default to US."""
-    env_name = os.environ.get("ATONIX_ENVIRONMENT", "US").upper()
-    if env_name == "INDIA":
-        return AtonixEnvironment.INDIA
-    return AtonixEnvironment.US
+def live_client(api_key, private_key):
+    """Create a real AtonixClient for integration testing.
 
-
-@pytest.fixture(scope="session")
-def live_client(api_key, private_key, atonix_environment):
-    """Create a real AtonixClient for integration testing."""
-    return AtonixClient(api_key=api_key, private_key=private_key, environment=atonix_environment)
+    The target comes from ATONIX_ENVIRONMENT (a region name such as ``US``/``INDIA``,
+    or a base URL), resolved by the client itself; it defaults to US.
+    """
+    return AtonixClient(api_key=api_key, private_key=private_key)
 
 
 @pytest.fixture(scope="session")

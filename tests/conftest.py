@@ -12,6 +12,14 @@ from httpx import Request, Response
 
 from atonix.client import AtonixClient
 
+
+@pytest.fixture(autouse=True)
+def _isolate_environment_var(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep a developer's ATONIX_ENVIRONMENT from redirecting mocked unit-test requests."""
+    if request.node.get_closest_marker("integration") is None:
+        monkeypatch.delenv("ATONIX_ENVIRONMENT", raising=False)
+
+
 # --- Mock RSA Key ---
 
 

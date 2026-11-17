@@ -72,6 +72,7 @@ argument or `ATONIX_PRIVATE_KEY_PASSWORD`.
 | `ATONIX_PRIVATE_KEY`          | PEM contents. Takes precedence over `ATONIX_PRIVATE_KEY_PATH`.                  |
 | `ATONIX_PRIVATE_KEY_PATH`     | Path to the PEM file.                                                           |
 | `ATONIX_PRIVATE_KEY_PASSWORD` | Password for an encrypted key (optional).                                       |
+| `ATONIX_ENVIRONMENT`          | Target API when `environment` isn't passed: `US`, `INDIA`, or a base URL. Defaults to `US`. |
 | `ATONIX_LOG_PAYLOADS`         | `1`/`true`/`yes`/`on` logs full time-series payloads at DEBUG. Off by default.  |
 
 With everything set, construction is just `AtonixClient()`.
@@ -80,7 +81,7 @@ With everything set, construction is just `AtonixClient()`.
 
 | Argument      | Default                  | Description                                                                 |
 | ------------- | ------------------------ | --------------------------------------------------------------------------- |
-| `environment` | `AtonixEnvironment.US`   | An [`AtonixEnvironment`][atonix.AtonixEnvironment] (`US`, `INDIA`) or a custom base URL. |
+| `environment` | `ATONIX_ENVIRONMENT`, then `AtonixEnvironment.US` | An [`AtonixEnvironment`][atonix.AtonixEnvironment] (`US`, `INDIA`), its name as a string, or a custom base URL (see [below](#custom-and-on-premises-deployments)). |
 | `timeout`     | `30.0`                   | Per-request timeout in seconds.                                             |
 | `max_retries` | `3`                      | Max attempts per request for 429, 5xx, and network errors (min. 1 attempt). |
 | `allow_insecure` | `False`               | Allow a plain `http://` custom URL (local testing only). By default only `https://` is accepted. |
@@ -95,6 +96,31 @@ from atonix import AtonixClient, AtonixEnvironment
 
 client = AtonixClient(environment=AtonixEnvironment.INDIA, timeout=60, max_retries=5)
 ```
+
+### Custom and on-premises deployments
+
+`AtonixEnvironment` only lists the regions Prometheus Group hosts. If your Atonix instance runs
+somewhere else, for example an on-premises install, give the client its base URL. The easiest
+way is the `ATONIX_ENVIRONMENT` environment variable, which keeps the URL out of your code:
+
+```bash
+export ATONIX_ENVIRONMENT=https://apm.example.com
+```
+
+Or pass it as a string, which takes precedence over the environment variable:
+
+```python
+from atonix import AtonixClient
+
+client = AtonixClient(environment="https://apm.example.com")
+```
+
+- The URL must be absolute and use `https://`. Plain `http://` is refused unless you pass
+  `allow_insecure=True`, which sends your credentials and signed requests unencrypted. Use it
+  only for local testing.
+- A trailing slash is ignored. A path prefix is kept, so if the API is served under a path
+  (`https://apm.example.com/api`), requests go to `https://apm.example.com/api/v1/...`.
+- `AsyncAtonixClient` takes the same `environment` argument and reads the same variable.
 
 ## TLS
 
