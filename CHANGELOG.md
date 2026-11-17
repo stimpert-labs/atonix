@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-17
+
 ### Added
 - Python 3.14 is now tested in CI and listed in the package classifiers.
 - `ATONIX_ENVIRONMENT` environment variable selects the API target when `environment` isn't
@@ -166,7 +168,8 @@ First open-source release.
 ### Security
 - Bumped `cryptography` to a patched release.
 
-[Unreleased]: https://github.com/stimpert-labs/atonix/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/stimpert-labs/atonix/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/stimpert-labs/atonix/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/stimpert-labs/atonix/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/stimpert-labs/atonix/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/stimpert-labs/atonix/compare/v0.5.3...v0.6.0
