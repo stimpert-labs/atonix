@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator, Iterable, Iterator
 from datetime import datetime, timedelta
 from typing import Any
 
-from atonix.base import AsyncBaseResource, BaseResource
+from atonix.base import AsyncBaseResource, BaseResource, Op, Pager, call, find, single
 from atonix.exceptions import QuerySizeError
 from atonix.object_models.common import APIResponse
 from atonix.object_models.processdata import Archive, Server, Tag, TagData
@@ -239,6 +239,82 @@ def _iter_tag_chunks(data: list[TagData]) -> Iterable[tuple[dict[str, Any], int]
             yield entry, len(chunk_timestamps)
 
 
+# --- Shared request logic (used by both ProcessData and AsyncProcessData) ---
+
+
+def _servers(skip: int, take: int) -> Pager[Server]:
+    return Pager("/v1/processdata/servers", Server, skip=skip, take=take)
+
+
+def _tags_list(
+    server_id: str, changed_after: datetime | None, changed_before: datetime | None, skip: int, take: int
+) -> Pager[Tag]:
+    params: dict[str, Any] = {}
+    if changed_after:
+        params["changedAfter"] = changed_after.isoformat()
+    if changed_before:
+        params["changedBefore"] = changed_before.isoformat()
+    return Pager(f"/v1/processdata/servers/{server_id}/tags", Tag, params=params, skip=skip, take=take)
+
+
+def _tag_details(tag_id: str) -> Op[Tag]:
+    return single(f"/v1/processdata/tags/{tag_id}", Tag)
+
+
+def _archives(server_id: str) -> Pager[Archive]:
+    return Pager(f"/v1/processdata/servers/{server_id}/archives", Archive, take=50)
+
+
+def _data_for_range(
+    server_id: str, start_time: datetime, end_time: datetime, tag_ids: list[str], archive: str, chunk: bool
+) -> Op[list[TagData]]:
+    if not _validate_time_range(start_time, end_time):
+        raise ValueError("Start time must be before end time")
+
+    logger.debug("Querying ProcessData range: %s to %s for %d tags", start_time, end_time, len(tag_ids))
+
+    # The archive's interval is needed to size (and, if necessary, split) the query.
+    archive_info = yield from find(_archives(server_id), lambda a: a.name.lower() == archive.lower())
+    if not archive_info:
+        raise ValueError(f"Archive `{archive}` not found on server: {server_id}")
+    interval = archive_info.interval
+
+    if not _check_query_size(tag_ids, start_time, end_time, interval, chunk):
+        payload = _build_query_payload(server_id, start_time, end_time, tag_ids, archive)
+        return _parse_query_response((yield from call("POST", "/v1/processdata/query", json=payload)))
+
+    chunks = _plan_read_chunks(tag_ids, start_time, end_time, interval)
+    logger.info("Query exceeds %d points; splitting into %d sub-queries", _READ_CHUNK_LIMIT, len(chunks))
+    chunk_results = []
+    for chunk_tags, chunk_start, chunk_end in chunks:
+        payload = _build_query_payload(server_id, chunk_start, chunk_end, chunk_tags, archive)
+        chunk_results.append(_parse_query_response((yield from call("POST", "/v1/processdata/query", json=payload))))
+    return _merge_tag_results(tag_ids, chunk_results)
+
+
+def _write_tag_data(server_id: str, archive: str, data: list[TagData]) -> Op[None]:
+    logger.debug("Writing process data to server %s, archive %s", server_id, archive)
+
+    def _payload(tag_data: list[dict[str, Any]]) -> dict[str, Any]:
+        return {"ServerId": server_id, "Archive": archive, "TagData": tag_data}
+
+    # Pack tag entries into as few POSTs as possible without exceeding _WRITE_CHUNK_LIMIT points each.
+    batch: list[dict[str, Any]] = []
+    batch_points = 0
+    for entry, points in _iter_tag_chunks(data):
+        if batch and batch_points + points > _WRITE_CHUNK_LIMIT:
+            yield from call("POST", "/v1/processdata/write", json=_payload(batch))
+            batch, batch_points = [], 0
+        batch.append(entry)
+        batch_points += points
+
+    if batch:
+        yield from call("POST", "/v1/processdata/write", json=_payload(batch))
+
+
+# --- Public resources ---
+
+
 class ProcessData(BaseResource):
     """Interface for the Atonix ProcessData (Time-Series) API."""
 
@@ -253,7 +329,7 @@ class ProcessData(BaseResource):
         Yields:
             Server objects one by one.
         """
-        return self._get_paginated("/v1/processdata/servers", Server, skip=skip, take=take)
+        return self._iterate(_servers(skip, take))
 
     def get_tags_list(
         self,
@@ -276,15 +352,7 @@ class ProcessData(BaseResource):
         Yields:
             Tag objects (basic info) one by one.
         """
-        params: dict[str, Any] = {}
-        if changed_after:
-            params["changedAfter"] = changed_after.isoformat()
-        if changed_before:
-            params["changedBefore"] = changed_before.isoformat()
-
-        return self._get_paginated(
-            f"/v1/processdata/servers/{server_id}/tags", Tag, params=params, skip=skip, take=take
-        )
+        return self._iterate(_tags_list(server_id, changed_after, changed_before, skip, take))
 
     def get_tag_details(self, tag_id: str) -> Tag:
         """
@@ -296,7 +364,7 @@ class ProcessData(BaseResource):
         Returns:
             A Tag object with all detail fields populated.
         """
-        return self._get_single(f"/v1/processdata/tags/{tag_id}", Tag)
+        return self._run(_tag_details(tag_id))
 
     def get_archives(self, server_id: str) -> Iterator[Archive]:
         """
@@ -310,7 +378,7 @@ class ProcessData(BaseResource):
         Yields:
             Archive objects one by one.
         """
-        return self._get_paginated(f"/v1/processdata/servers/{server_id}/archives", Archive, take=50)
+        return self._iterate(_archives(server_id))
 
     def get_data_for_range(
         self,
@@ -327,7 +395,7 @@ class ProcessData(BaseResource):
         Automatically calculates requirements for interval/sampling based on the archive.
         Queries larger than ``_READ_CHUNK_LIMIT`` (250,000 tag x timestamp points) are split
         into sub-queries by tag group and, when a single tag exceeds the limit, by time window.
-        The per-tag series are reassembled before returning.
+        Sub-queries run sequentially and the per-tag series are reassembled before returning.
 
         Args:
             server_id: The unique identifier (GUID) of the historian server.
@@ -344,31 +412,7 @@ class ProcessData(BaseResource):
         Raises:
             QuerySizeError: If the query exceeds the point limit and ``chunk`` is False.
         """
-
-        if not _validate_time_range(start_time, end_time):
-            raise ValueError("Start time must be before end time")
-
-        logger.debug("Querying ProcessData range: %s to %s for %d tags", start_time, end_time, len(tag_ids))
-
-        # We need the interval from the archive to build the request correctly
-        archives = self.get_archives(server_id)
-        archive_info = next((a for a in archives if a.name.lower() == archive.lower()), None)
-        if not archive_info:
-            raise ValueError(f"Archive `{archive}` not found on server: {server_id}")
-        else:
-            interval = archive_info.interval
-
-        if not _check_query_size(tag_ids, start_time, end_time, interval, chunk):
-            payload = _build_query_payload(server_id, start_time, end_time, tag_ids, archive)
-            return _parse_query_response(self._client.post("/v1/processdata/query", json=payload))
-
-        chunks = _plan_read_chunks(tag_ids, start_time, end_time, interval)
-        logger.info("Query exceeds %d points; splitting into %d sub-queries", _READ_CHUNK_LIMIT, len(chunks))
-        chunk_results = []
-        for chunk_tags, chunk_start, chunk_end in chunks:
-            payload = _build_query_payload(server_id, chunk_start, chunk_end, chunk_tags, archive)
-            chunk_results.append(_parse_query_response(self._client.post("/v1/processdata/query", json=payload)))
-        return _merge_tag_results(tag_ids, chunk_results)
+        return self._run(_data_for_range(server_id, start_time, end_time, tag_ids, archive, chunk))
 
     def write_tag_data(self, server_id: str, archive: str, data: list[TagData]) -> None:
         """
@@ -385,31 +429,7 @@ class ProcessData(BaseResource):
             archive: The archive to write to.
             data: List of TagData objects containing the data to write.
         """
-        logger.debug("Writing process data to server %s, archive %s", server_id, archive)
-
-        batch: list[dict[str, Any]] = []
-        batch_points = 0
-
-        def _flush() -> None:
-            nonlocal batch, batch_points
-            if not batch:
-                return
-            payload = {
-                "ServerId": server_id,
-                "Archive": archive,
-                "TagData": batch,
-            }
-            self._client.post("/v1/processdata/write", json=payload)
-            batch = []
-            batch_points = 0
-
-        for entry, points in _iter_tag_chunks(data):
-            if batch and batch_points + points > _WRITE_CHUNK_LIMIT:
-                _flush()
-            batch.append(entry)
-            batch_points += points
-
-        _flush()
+        self._run(_write_tag_data(server_id, archive, data))
 
 
 class AsyncProcessData(AsyncBaseResource):
@@ -426,7 +446,7 @@ class AsyncProcessData(AsyncBaseResource):
         Returns:
             An async iterator of Server objects.
         """
-        return self._get_paginated("/v1/processdata/servers", Server, skip=skip, take=take)
+        return self._iterate(_servers(skip, take))
 
     def get_tags_list(
         self,
@@ -447,17 +467,9 @@ class AsyncProcessData(AsyncBaseResource):
             take: Results per page.
 
         Returns:
-            An async iterator of Tag objects.
+            An async iterator of Tag objects (basic info).
         """
-        params: dict[str, Any] = {}
-        if changed_after:
-            params["changedAfter"] = changed_after.isoformat()
-        if changed_before:
-            params["changedBefore"] = changed_before.isoformat()
-
-        return self._get_paginated(
-            f"/v1/processdata/servers/{server_id}/tags", Tag, params=params, skip=skip, take=take
-        )
+        return self._iterate(_tags_list(server_id, changed_after, changed_before, skip, take))
 
     async def get_tag_details(self, tag_id: str) -> Tag:
         """
@@ -469,11 +481,13 @@ class AsyncProcessData(AsyncBaseResource):
         Returns:
             A Tag object with all detail fields populated.
         """
-        return await self._get_single(f"/v1/processdata/tags/{tag_id}", Tag)
+        return await self._run(_tag_details(tag_id))
 
     def get_archives(self, server_id: str) -> AsyncIterator[Archive]:
         """
         List available archives (time resolutions) for a server.
+
+        Common archives include '1min', '60min'.
 
         Args:
             server_id: The unique identifier (GUID) of the server.
@@ -481,7 +495,7 @@ class AsyncProcessData(AsyncBaseResource):
         Returns:
             An async iterator of Archive objects.
         """
-        return self._get_paginated(f"/v1/processdata/servers/{server_id}/archives", Archive, take=50)
+        return self._iterate(_archives(server_id))
 
     async def get_data_for_range(
         self,
@@ -495,6 +509,7 @@ class AsyncProcessData(AsyncBaseResource):
         """
         Retrieve time-series data for a set of tags over a date range.
 
+        Automatically calculates requirements for interval/sampling based on the archive.
         Queries larger than ``_READ_CHUNK_LIMIT`` (250,000 tag x timestamp points) are split
         into sub-queries by tag group and, when a single tag exceeds the limit, by time window.
         Sub-queries run sequentially and the per-tag series are reassembled before returning.
@@ -514,33 +529,7 @@ class AsyncProcessData(AsyncBaseResource):
         Raises:
             QuerySizeError: If the query exceeds the point limit and ``chunk`` is False.
         """
-        if not _validate_time_range(start_time, end_time):
-            raise ValueError("Start time must be before end time")
-
-        logger.debug("Querying ProcessData range: %s to %s for %d tags", start_time, end_time, len(tag_ids))
-
-        archive_info = None
-        async for a in self.get_archives(server_id):
-            if a.name.lower() == archive.lower():
-                archive_info = a
-                break
-
-        if not archive_info:
-            raise ValueError(f"Archive `{archive}` not found on server: {server_id}")
-
-        interval = archive_info.interval
-
-        if not _check_query_size(tag_ids, start_time, end_time, interval, chunk):
-            payload = _build_query_payload(server_id, start_time, end_time, tag_ids, archive)
-            return _parse_query_response(await self._client.post("/v1/processdata/query", json=payload))
-
-        chunks = _plan_read_chunks(tag_ids, start_time, end_time, interval)
-        logger.info("Query exceeds %d points; splitting into %d sub-queries", _READ_CHUNK_LIMIT, len(chunks))
-        chunk_results = []
-        for chunk_tags, chunk_start, chunk_end in chunks:
-            payload = _build_query_payload(server_id, chunk_start, chunk_end, chunk_tags, archive)
-            chunk_results.append(_parse_query_response(await self._client.post("/v1/processdata/query", json=payload)))
-        return _merge_tag_results(tag_ids, chunk_results)
+        return await self._run(_data_for_range(server_id, start_time, end_time, tag_ids, archive, chunk))
 
     async def write_tag_data(self, server_id: str, archive: str, data: list[TagData]) -> None:
         """
@@ -557,28 +546,4 @@ class AsyncProcessData(AsyncBaseResource):
             archive: The archive to write to.
             data: List of TagData objects containing the data to write.
         """
-        logger.debug("Writing process data to server %s, archive %s", server_id, archive)
-
-        batch: list[dict[str, Any]] = []
-        batch_points = 0
-
-        async def _flush() -> None:
-            nonlocal batch, batch_points
-            if not batch:
-                return
-            payload = {
-                "ServerId": server_id,
-                "Archive": archive,
-                "TagData": batch,
-            }
-            await self._client.post("/v1/processdata/write", json=payload)
-            batch = []
-            batch_points = 0
-
-        for entry, points in _iter_tag_chunks(data):
-            if batch and batch_points + points > _WRITE_CHUNK_LIMIT:
-                await _flush()
-            batch.append(entry)
-            batch_points += points
-
-        await _flush()
+        await self._run(_write_tag_data(server_id, archive, data))
